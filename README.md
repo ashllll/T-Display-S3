@@ -91,25 +91,25 @@
 6. Select any example and double-click the `.ino` file to open it.
 7. In Arduino IDE, go to `Tools` and configure the following:
 
-    | Arduino IDE Setting                  | Value                             |
-    | ------------------------------------ | --------------------------------- |
-    | Board                                | **ESP32S3 Dev Module**            |
-    | Port                                 | Your port                         |
-    | USB CDC On Boot                      | Enable                            |
-    | CPU Frequency                        | 240MHz (WiFi)                     |
-    | Core Debug Level                     | None                              |
-    | USB DFU On Boot                      | Disable                           |
-    | Erase All Flash Before Sketch Upload | Disable                           |
-    | Events Run On                        | Core1                             |
-    | Flash Mode                           | QIO 80MHz                         |
-    | Flash Size                           | **16MB (128Mb)**                  |
-    | Arduino Runs On                      | Core1                             |
-    | USB Firmware MSC On Boot             | Disable                           |
-    | Partition Scheme                     | **16M Flash (3M APP/9.9MB FATFS)**|
-    | PSRAM                                | **OPI PSRAM**                     |
-    | Upload Mode                          | **UART0/Hardware CDC**            |
-    | Upload Speed                         | 921600                            |
-    | USB Mode                             | **CDC and JTAG**                  |
+    | Arduino IDE Setting                  | Value                              |
+    | ------------------------------------ | ---------------------------------- |
+    | Board                                | **ESP32S3 Dev Module**             |
+    | Port                                 | Your port                          |
+    | USB CDC On Boot                      | Enable                             |
+    | CPU Frequency                        | 240MHz (WiFi)                      |
+    | Core Debug Level                     | None                               |
+    | USB DFU On Boot                      | Disable                            |
+    | Erase All Flash Before Sketch Upload | Disable                            |
+    | Events Run On                        | Core1                              |
+    | Flash Mode                           | QIO 80MHz                          |
+    | Flash Size                           | **16MB (128Mb)**                   |
+    | Arduino Runs On                      | Core1                              |
+    | USB Firmware MSC On Boot             | Disable                            |
+    | Partition Scheme                     | **16M Flash (3M APP/9.9MB FATFS)** |
+    | PSRAM                                | **OPI PSRAM**                      |
+    | Upload Mode                          | **UART0/Hardware CDC**             |
+    | Upload Speed                         | 921600                             |
+    | USB Mode                             | **CDC and JTAG**                   |
 
     > Options in **bold** are required. Others should be selected based on your actual conditions.
 
@@ -180,10 +180,10 @@ For the ESP-IDF version of T-Display-S3 examples, see [LilyGo-Display-IDF](https
 
 ## 8. Resources
 
-| Product (PinMap)        | Schematic                                              | Dimensions                  | PCB 3D                                    | PinMap                                   |
-| ----------------------- | ------------------------------------------------------ | --------------------------- | ----------------------------------------- | ---------------------------------------- |
-| [T-Display-S3][1]       | [schematic](./schematic/T_Display_S3.pdf)              | [DWG](./dimensions/PCB.dwg) | [STP](./dimensions/t-display-s3-full.stp) | [PinMap](./image/T-DISPLAY-S3.jpg)       |
-| [T-Display-S3-Touch][2] | [schematic](./schematic/T_Display_S3.pdf)              | [DWG](./dimensions/PCB.dwg) | [STP](./dimensions/t-display-s3-full.stp) | [PinMap](./image/T-DISPLAY-S3-TOUCH.png) |
+| Product (PinMap)        | Schematic                                               | Dimensions                  | PCB 3D                                    | PinMap                                   |
+| ----------------------- | ------------------------------------------------------- | --------------------------- | ----------------------------------------- | ---------------------------------------- |
+| [T-Display-S3][1]       | [schematic](./schematic/T_Display_S3.pdf)               | [DWG](./dimensions/PCB.dwg) | [STP](./dimensions/t-display-s3-full.stp) | [PinMap](./image/T-DISPLAY-S3.jpg)       |
+| [T-Display-S3-Touch][2] | [schematic](./schematic/T_Display_S3.pdf)               | [DWG](./dimensions/PCB.dwg) | [STP](./dimensions/t-display-s3-full.stp) | [PinMap](./image/T-DISPLAY-S3-TOUCH.png) |
 | [T-Display-S3-MIDI][3]  | [schematic](./schematic/SCH_T-Display-S3-MIDI_V1.1.pdf) | N.A                         | N.A                                       | N.A                                      |
 
 ## 9. FAQ
@@ -255,3 +255,9 @@ For the ESP-IDF version of T-Display-S3 examples, see [LilyGo-Display-IDF](https
 1. In USB mode, the green indicator stays on.
 2. In battery power mode, GPIO15 lights up when high and turns off when low.
 3. V3V controls the V3V output of the header pins and provides power to the screen.
+
+### WiFi antenna
+
+* The default is onboard antenna. If you need to use an external antenna, you need to rotate the resistor in the red position in the image below to the position highlighted in yellow to switch to external antenna mode.
+
+<img src="./image/WiFi.png" alt="antenna" width="480"/>

@@ -254,3 +254,10 @@ T-Display-S3 的 ESP-IDF 版本示例，请前往 [LilyGo-Display-IDF](https://g
 1. USB 供电模式下，绿色指示灯常亮。
 2. 电池供电模式下，GPIO15 为高时点亮，为低时熄灭。
 3. V3V 控制排针的 V3V 输出，为屏幕供电。
+
+
+### WiFi 天线
+
+* 默认为板载天线,如果需要使用外置天线,需要把下图红色位置的电阻旋转到黄色高亮显示的位置，才能切换到外置天线模式。
+
+<img src="./image/WiFi.png" alt="antenna" width="480"/>
