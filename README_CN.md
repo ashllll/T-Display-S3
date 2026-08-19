@@ -185,7 +185,21 @@ T-Display-S3 的 ESP-IDF 版本示例，请前往 [LilyGo-Display-IDF](https://g
 | [T-Display-S3-Touch][2] | [原理图](./schematic/T_Display_S3.pdf)               | [DWG](./dimensions/PCB.dwg) | [STP](./dimensions/t-display-s3-full.stp) | [引脚图](./image/T-DISPLAY-S3-TOUCH.png) |
 | [T-Display-S3-MIDI][3]  | [原理图](./schematic/SCH_T-Display-S3-MIDI_V1.1.pdf) | N.A                         | N.A                                       | N.A                                      |
 
-## 9. 常见问题
+## 9. iKuai 小屏监控固件
+
+本仓库已整合面向 T-Display-S3 的 iKuai/优倍快监控固件，代码位于
+[examples/ikuai_widget](./examples/ikuai_widget)。它使用板载 ST7789 8-bit 并口屏，显示 WAN 状态、Ping、上下行速率、客户端数和趋势曲线。
+
+```bash
+cd examples/ikuai_widget
+cp src/config.example.h src/config.h
+cp src/ikuai_cert.example.h src/ikuai_cert.h
+pio run -e t-display-s3
+```
+
+首次构建默认是离线演示模式。需要联网监控时，在 `src/config.h` 中填写 Wi-Fi、iKuai 地址和 Token，并把 `APP_DEMO_MODE` 改为 `0`；真实 HTTPS 部署还需要填写 `src/ikuai_cert.h`。烧录前请确认 GPIO15 外设电源、ST7789 并口和 BOOT 按键均对应非触摸版 T-Display-S3。
+
+## 10. 常见问题
 
 1. **使用电池供电时屏幕不亮。**
    - 电池供电时，GPIO15 必须设置为高电平才能打开背光。

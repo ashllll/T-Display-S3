@@ -186,7 +186,26 @@ For the ESP-IDF version of T-Display-S3 examples, see [LilyGo-Display-IDF](https
 | [T-Display-S3-Touch][2] | [schematic](./schematic/T_Display_S3.pdf)               | [DWG](./dimensions/PCB.dwg) | [STP](./dimensions/t-display-s3-full.stp) | [PinMap](./image/T-DISPLAY-S3-TOUCH.png) |
 | [T-Display-S3-MIDI][3]  | [schematic](./schematic/SCH_T-Display-S3-MIDI_V1.1.pdf) | N.A                         | N.A                                       | N.A                                      |
 
-## 9. FAQ
+## 9. iKuai Widget Firmware
+
+This repository includes the T-Display-S3 iKuai/router monitoring firmware in
+[examples/ikuai_widget](./examples/ikuai_widget). It targets the onboard ST7789
+8-bit parallel display and shows WAN status, ping, download/upload rates, client
+count, and rolling trends.
+
+```bash
+cd examples/ikuai_widget
+cp src/config.example.h src/config.h
+cp src/ikuai_cert.example.h src/ikuai_cert.h
+pio run -e t-display-s3
+```
+
+The first build is offline demo mode. For live monitoring, fill in Wi-Fi, iKuai
+host, and token in `src/config.h`, set `APP_DEMO_MODE` to `0`, and provide the
+router CA certificate in `src/ikuai_cert.h`. Confirm the non-touch T-Display-S3
+power, ST7789 parallel-bus, and BOOT-button wiring before flashing.
+
+## 10. FAQ
 
 1. **The screen does not light up when using battery.**
    - When T-Display-S3 is powered by battery, GPIO15 must be set to HIGH to turn on the backlight.
