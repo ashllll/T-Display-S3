@@ -28,7 +28,7 @@ static const char *TAG = "lcd";
 static const int s_data_pins[8] = { 39, 40, 41, 42, 45, 46, 47, 48 };
 
 #define PCLK_HZ     (20 * 1000 * 1000)
-#define BL_MAX_PCT  40    // 背光硬上限 40%（沿袭原项目约定）
+#define BL_MAX_PCT  40    // 背光硬上限 40%，避免小屏长时间高亮
 
 // 170x320 面板在 240x320 GRAM 中的列偏移（竖屏坐标系，swap_xy 之前）
 #define X_GAP 35
