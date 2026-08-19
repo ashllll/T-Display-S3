@@ -1,6 +1,6 @@
 # T-Display-S3 iKuai 网络监控屏 / iKuai Network Monitor
 
-面向 T-Display-S3（非触摸版）的桌面监控摆件固件：LVGL 界面实时显示 iKuai 路由器 WAN 状态、上下行速率与滚动趋势曲线。UI 采用酷态科（CUKTECH）小屏设计语言：纯黑底 + D-DIN Italic 大数字 + 彩色胶囊标签 + 无网格渐变曲线。
+面向 T-Display-S3（非触摸版）的桌面监控摆件固件：LVGL 界面实时显示 iKuai 路由器 WAN 状态、上下行速率与滚动趋势曲线。UI 采用酷态科（CUKTECH）小屏设计语言：纯黑底 + 原生清晰数字 + 彩色胶囊标签 + 无网格渐变曲线；主页使用 D-DIN Italic，速率焦点页使用原生 48px 数字避免缩放模糊。
 
 本目录是 T-Display-S3 的独立监控固件入口，面向板载 ST7789 屏幕和 GPIO0 BOOT 按键。
 
@@ -17,9 +17,9 @@
 | 页 | 内容 | 数据源（iKuai v4.0 API） |
 |---|---|---|
 | 1 | 主页数据墙：WAN 状态 / PING 胶囊 / 上下行大数字 / 三色趋势曲线 | monitoring/system（1s） |
-| 2 | 速率焦点页：2 倍超大总下行速率 + UP 副行 | 同上 |
+| 2 | 速率焦点页：原生 48px 总下行速率 + UP 副行 | 同上 |
 | 3 | 全屏曲线页：300×108 无网格三色滚动曲线 | 同上 + ICMP ping |
-| 4 | 本机状态页：WIFI(IP) / CLIENTS / UPTIME / HEAP 胶囊行 | 本地 |
+| 4 | 本机状态页：IP / CLIENTS / DEVICE UP / HEAP 胶囊行 | 本地 |
 | 5 | 路由健康页：CPU/内存双大数字 + 温度 + 路由运行时间 + 固件版本 | monitoring/system 附带字段（零额外请求） |
 | 6 | WAN 线路详情页：双线路公网 IP / 网关 / 在线状态点 | monitoring/interfaces-status（3s 轮转） |
 | 7 | 终端流量排行页：下行 Top3（名称 + 实时速率，第一名黄胶囊） | monitoring/clients-online（3s 轮转） |
@@ -27,7 +27,7 @@
 
 > 扩展端点采用**轮转制**：每 3 秒只发一个额外请求（WAN → 终端 → AC 循环），不给路由器加压力；AC 未开启时第 8 页显示 OFF 且不再请求无线统计。
 
-**BOOT 键（GPIO0）**：单击 = 下一页（350ms 双击窗口内第二次按下 = 直接回主页，循环翻页带 250ms 缓出滑入动画）；长按 1.2s = 息屏/唤醒（背光 0 ↔ 配置值）。消抖 30ms。**60 秒无操作自动回主页**。
+**BOOT 键（GPIO0）**：单击 = 下一页（350ms 双击窗口内第二次按下 = 直接回主页，循环翻页带 190ms 缓出滑入动画）；长按 1.2s = 息屏/唤醒（背光 0 ↔ 配置值）。消抖 30ms。**60 秒无操作自动回主页**。
 
 ## 动态行为（酷态科语言的灵魂细节）
 
@@ -36,7 +36,7 @@
 - **下行曲线渐变填充**：30号站同款 sparkline，亮线 + 向下渐淡填充，不覆盖其他轨道
 - **焦点页峰值标记**：会话峰值以 `PEAK x.x MB/s *` 黄字常驻（模式 C 规格）
 - **翻页方向感动画**：向前翻从右滑入，回翻从左滑入
-- **焦点页流星汇入**：流量活跃时，12 颗青/蓝流星带拖尾从两侧向大数字汇聚、到达后消散重生（模式 C 完全体，30fps 粒子画布，流量静默时自动熄灭）
+- **焦点页流星汇入**：仅在流量明显变化时短暂出现 6 颗青/蓝流星，避免持续粒子遮挡主数字；设置 `APP_REDUCED_MOTION=1` 可关闭页面滑动和流星动效
 - **夜间自动降背光**：SNTP 授时（ntp.aliyun.com，CST-8）后，23:00–07:00 背光自动降到 `APP_BL_NIGHT_PCT`（默认 8%），时段可在 `config.h` 改；手动息屏优先，时间未同步时不动作
 
 ## 硬件
@@ -57,7 +57,7 @@
 
 ## 功能
 
-- **LVGL 监控面板**（横屏 320×170，背光上限 40%）：WAN 在线状态、在线设备数、网关 PING（橙色描边胶囊）、下行/上行实时速率大数字（D-DIN Italic，青/蓝胶囊标签）、约 10 秒三色滚动趋势曲线（30fps，临界阻尼平滑）
+- **LVGL 监控面板**（横屏 320×170，背光上限 40%）：WAN 在线状态、在线设备数、网关 PING（橙色描边胶囊）、下行/上行实时速率大数字（主页 D-DIN Italic、焦点页原生 48px，青/蓝胶囊标签）、约 10 秒三色滚动趋势曲线（30fps，临界阻尼平滑）
 - **iKuai 路由器数据源**：HTTPS + Bearer token + 固定证书，1 秒轮询
 - **离线演示模式**：`APP_DEMO_MODE=1` 时使用模拟数据运行
 
@@ -75,11 +75,13 @@ pio run -e t-display-s3 -t upload
 pio device monitor
 ```
 
+`APP_REDUCED_MOTION=1` 可关闭页面滑动和流星动效，保留曲线滚动，适合对动效敏感或需要更安静显示的场景。
+
 LVGL 9.2.2 由 `src/idf_component.yml` 管理，版本锁定在 `dependencies.lock`；`components/lv_conf.h` 是本板的精简配置。`src/config.h`、`src/ikuai_cert.h`、构建目录和生成的 `sdkconfig` 均为本地文件，不要提交。
 
 ## Build / English
 
-Run `pio run -e t-display-s3` from a clean checkout to build the offline demo. The demo uses the tracked example configuration and makes no network connection. For live iKuai monitoring, copy both example headers to `src/config.h` and `src/ikuai_cert.h`, fill in Wi‑Fi/router settings and the CA certificate, then set `APP_DEMO_MODE` to `0` before building and uploading.
+Run `pio run -e t-display-s3` from a clean checkout to build the offline demo. The demo uses the tracked example configuration and makes no network connection. For live iKuai monitoring, copy both example headers to `src/config.h` and `src/ikuai_cert.h`, fill in Wi‑Fi/router settings and the CA certificate, then set `APP_DEMO_MODE` to `0` before building and uploading. Set `APP_REDUCED_MOTION` to `1` for a calmer display mode.
 
 LVGL 9.2.2 is managed by `src/idf_component.yml` and pinned in `dependencies.lock`. The board-specific trimmed feature set lives in `components/lv_conf.h`. Local credentials, certificates, build output, and generated `sdkconfig` files are intentionally excluded from Git.
 

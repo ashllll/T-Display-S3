@@ -1,5 +1,5 @@
 /**
- * LVGL v9.2.2 配置 — LILYGO T-Display-S3 桌面摆件
+ * LVGL v9.2.2 配置 — LILYGO T-Display-S3 iKuai 网络监控屏
  * 170x320 RGB565 横屏；只保留本 UI 使用的 Label/Canvas 等组件
  */
 #ifndef LV_CONF_H
@@ -27,8 +27,8 @@
 
 /*==================== 渲染器 ====================*/
 #define LV_USE_DRAW_SW 1
-#define LV_DRAW_SW_SHADOW 1              /* 玻璃风阴影 */
-#define LV_DRAW_SW_COMPLEX_GRADIENTS 1   /* 径向渐变背景（Apple 风） */
+#define LV_DRAW_SW_SHADOW 0              /* UI 不使用阴影 */
+#define LV_DRAW_SW_COMPLEX_GRADIENTS 0   /* UI 不使用复杂渐变 */
 
 /*==================== 日志 ====================*/
 #define LV_USE_LOG 1
@@ -48,7 +48,7 @@
 #define LV_FONT_MONTSERRAT_20 0
 #define LV_FONT_MONTSERRAT_28 0
 #define LV_FONT_MONTSERRAT_36 0         /* UI uses custom 2bpp SemiBold numeric font */
-#define LV_FONT_MONTSERRAT_48 0
+#define LV_FONT_MONTSERRAT_48 1         /* native-size focus-page fallback; no runtime scaling */
 #define LV_FONT_DEFAULT &lv_font_montserrat_14
 
 /*==================== 控件（只留 Label） ====================*/
@@ -62,18 +62,18 @@
 #define LV_USE_CHART      1
 #define LV_USE_CHECKBOX   0
 #define LV_USE_DROPDOWN   0
-#define LV_USE_IMAGE      1   /* scale 组件依赖 */
+#define LV_USE_IMAGE      1   /* Canvas 内部依赖 image 类型 */
 #define LV_USE_IMAGEBUTTON 0
 #define LV_USE_KEYBOARD   0
 #define LV_USE_LABEL      1
 #define LV_USE_LED        0
-#define LV_USE_LINE       1   /* scale 组件依赖 */
+#define LV_USE_LINE       0
 #define LV_USE_LIST       0
 #define LV_USE_LOTTIE     0
 #define LV_USE_MENU       0
 #define LV_USE_MSGBOX     0
 #define LV_USE_ROLLER     0
-#define LV_USE_SCALE      1
+#define LV_USE_SCALE      0
 #define LV_USE_SLIDER     0
 #define LV_USE_SPAN       0
 #define LV_USE_SPINBOX    0

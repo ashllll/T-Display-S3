@@ -29,12 +29,16 @@
 
 LV_FONT_DECLARE(ui_font_ddin_12);
 LV_FONT_DECLARE(ui_font_ddin_italic_36);
+LV_FONT_DECLARE(lv_font_montserrat_48);
 
 #ifndef APP_DEMO_MODE
 #define APP_DEMO_MODE 0
 #endif
 #ifndef APP_TZ
 #define APP_TZ "CST-8"
+#endif
+#ifndef APP_REDUCED_MOTION
+#define APP_REDUCED_MOTION 0
 #endif
 #ifndef APP_NIGHT_START
 #define APP_NIGHT_START 23
@@ -70,6 +74,7 @@ static volatile bool s_wifi_ok = false;
 #define CURVE2_H 108
 #define CURVE_FPS 30
 #define CURVE_SMOOTH_SEC 0.28f
+#define ACTIVE_BPS (48 * 1024)
 
 #define RGB565(r,g,b) (uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3))
 
@@ -243,7 +248,7 @@ static void curve_roll(void) {
         else                 curve_draw_track(buf, CURVE_W - 1, i, &s_track[i]);
     }
     s_curve_frames++;
-    lv_obj_invalidate(canvas_curve);
+    if (lv_obj_is_visible(canvas_curve)) lv_obj_invalidate(canvas_curve);
 
     // 全屏曲线页同步滚动(同款黑底无网格)
     uint16_t *buf2 = (uint16_t *)cvs_curve2.data;
@@ -261,7 +266,7 @@ static void curve_roll(void) {
         if (y + 1 < CURVE2_H) buf2[(y + 1) * CURVE2_W + CURVE2_W - 1] = s_track[i].color;
         s_last_y2[i] = y;
     }
-    lv_obj_invalidate(canvas_curve2);
+    if (lv_obj_is_visible(canvas_curve2)) lv_obj_invalidate(canvas_curve2);
     meteor_step();
 }
 
@@ -271,6 +276,7 @@ static lv_obj_t *lbl_status, *lbl_online, *lbl_down, *lbl_up;
 static lv_obj_t *lbl_down_unit, *lbl_up_unit, *lbl_ping, *lbl_ip;
 static lv_obj_t *lbl_ping_bg;
 static lv_obj_t *dot_status;
+static lv_obj_t *lbl_main_curve_state, *lbl_curve_state;
 
 static void fmt_rate(uint32_t bps, char *value, int value_cap, const char **unit) {
     if (bps >= 1048576) {
@@ -329,12 +335,16 @@ static lv_obj_t *mk_block(lv_obj_t *parent, int x, int y, int w, int h, uint32_t
 // ═══ 焦点页流星粒子(模式 C 完全体):高速率时流星从两侧向数字汇入 ═══
 #define METEOR_W 296
 #define METEOR_H 40        // 覆盖大数字垂直中心区(数字视觉中心 y≈66)
-#define METEOR_N 12
+#define METEOR_N 6         // 短暂反馈，不持续铺满焦点页
 static lv_obj_t *canvas_meteor;
 LV_DRAW_BUF_DEFINE_STATIC(cvs_meteor, METEOR_W, METEOR_H, LV_COLOR_FORMAT_RGB565);
 static struct { float x, y, vx, vy; } s_mt[METEOR_N];
 static bool s_meteor_on = false;
 static bool s_last_active;   // 先行声明,定义在下方 ui_update 区
+static uint32_t s_meteor_until_ms = 0;
+static uint32_t s_meteor_last_bps = 0;
+static uint32_t s_meteor_last_trigger_ms = 0;
+static int s_page;
 
 static void meteor_reset(int i) {
     // 从左右边缘随机位置出发,汇聚到大数字视觉中心
@@ -349,7 +359,9 @@ static void meteor_reset(int i) {
 
 static void meteor_step(void) {
     uint16_t *buf = (uint16_t *)cvs_meteor.data;
-    bool want = s_last_active;   // 活跃(流量点亮)时才出现流星
+    uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
+    bool want = !APP_REDUCED_MOTION && s_page == 1 && s_last_active &&
+                (int32_t)(s_meteor_until_ms - now) > 0;
     if (want != s_meteor_on) {
         s_meteor_on = want;
         if (!want) { for (int i = 0; i < METEOR_W * METEOR_H; i++) buf[i] = s_c_bg; lv_obj_invalidate(canvas_meteor); return; }
@@ -375,6 +387,20 @@ static void meteor_step(void) {
     lv_obj_invalidate(canvas_meteor);
 }
 
+static void meteor_note_rate(uint32_t bps) {
+    uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
+    bool crossed_active = s_meteor_last_bps < ACTIVE_BPS && bps >= ACTIVE_BPS;
+    uint32_t base = s_meteor_last_bps > ACTIVE_BPS ? s_meteor_last_bps : ACTIVE_BPS;
+    uint32_t delta = bps > s_meteor_last_bps ? bps - s_meteor_last_bps : s_meteor_last_bps - bps;
+    if (!APP_REDUCED_MOTION && bps >= ACTIVE_BPS &&
+        (crossed_active || delta > base / 2) &&
+        (uint32_t)(now - s_meteor_last_trigger_ms) >= 1500) {
+        s_meteor_until_ms = now + 700;
+        s_meteor_last_trigger_ms = now;
+    }
+    s_meteor_last_bps = bps;
+}
+
 
 // ═══════════════════ 多页系统(BOOT 单击翻页) ════════════════════════
 // 页面 0:主页数据墙(模式 A)   页面 1:速率焦点页(模式 C)
@@ -384,7 +410,7 @@ static void meteor_step(void) {
 
 static lv_obj_t *s_pg[PAGE_COUNT];
 static lv_obj_t *s_dots[PAGE_COUNT];
-static int s_page = 0;
+static int s_page = -1;
 static bool s_bl_off = false;
 static uint32_t s_last_key_ms = 0;
 
@@ -399,25 +425,63 @@ static lv_obj_t *lbl_wan_dot[2];
 static lv_obj_t *lbl_cli[3][2];   // [i][0=名称 1=速率]
 static lv_obj_t *lbl_ac, *lbl_ap, *lbl_clt;
 
-static void show_page(int idx) {
-    int dir = idx >= s_page ? 1 : -1;     // 向前翻右进,回翻左进
-    s_page = idx;
+static void page_translate_x(void *var, int32_t value) {
+    lv_obj_set_style_translate_x((lv_obj_t *)var, value, 0);
+}
+
+static void page_hide_after_slide(lv_anim_t *a) {
+    lv_obj_t *pg = (lv_obj_t *)a->var;
+    lv_obj_add_flag(pg, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_style_translate_x(pg, 0, 0);
+}
+
+static void page_slide(lv_obj_t *pg, int32_t from, int32_t to, bool hide_when_done) {
+    lv_anim_delete(pg, page_translate_x);
+    lv_obj_remove_flag(pg, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_style_translate_x(pg, from, 0);
+
+    if (APP_REDUCED_MOTION) {
+        page_translate_x(pg, to);
+        if (hide_when_done) {
+            lv_obj_add_flag(pg, LV_OBJ_FLAG_HIDDEN);
+            page_translate_x(pg, 0);
+        }
+        return;
+    }
+
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, pg);
+    lv_anim_set_values(&a, from, to);
+    lv_anim_set_duration(&a, 190);
+    lv_anim_set_exec_cb(&a, page_translate_x);
+    lv_anim_set_path_cb(&a, lv_anim_path_custom_bezier3);
+    lv_anim_set_bezier3_param(&a,
+        LV_BEZIER_VAL_FLOAT(0.23f), LV_BEZIER_VAL_FLOAT(1.0f),
+        LV_BEZIER_VAL_FLOAT(0.32f), LV_BEZIER_VAL_FLOAT(1.0f));
+    if (hide_when_done) lv_anim_set_completed_cb(&a, page_hide_after_slide);
+    lv_anim_start(&a);
+}
+
+static void show_page(int idx, int dir) {
+    if (idx < 0 || idx >= PAGE_COUNT || idx == s_page) return;
+    lv_obj_t *old = (s_page >= 0 && s_page < PAGE_COUNT) ? s_pg[s_page] : NULL;
+    lv_obj_t *next = s_pg[idx];
+
     for (int i = 0; i < PAGE_COUNT; i++) {
-        if (i == idx) lv_obj_remove_flag(s_pg[i], LV_OBJ_FLAG_HIDDEN);
-        else          lv_obj_add_flag(s_pg[i], LV_OBJ_FLAG_HIDDEN);
+        lv_anim_delete(s_pg[i], page_translate_x);
+        if (s_pg[i] != old && s_pg[i] != next) {
+            lv_obj_add_flag(s_pg[i], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_style_translate_x(s_pg[i], 0, 0);
+        }
         // 页码指示点:当前页=强调黄,其余=灰(颜色即编码)
         lv_obj_set_style_bg_color(s_dots[i],
             lv_color_hex(i == idx ? CLR_YELLOW : 0x3A4150), 0);
     }
-    // 250ms 缓出滑入
-    lv_anim_t a;
-    lv_anim_init(&a);
-    lv_anim_set_var(&a, s_pg[idx]);
-    lv_anim_set_values(&a, 60 * dir, 0);
-    lv_anim_set_duration(&a, 250);
-    lv_anim_set_exec_cb(&a, (lv_anim_exec_xcb_t)lv_obj_set_x);
-    lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
-    lv_anim_start(&a);
+
+    if (old) page_slide(old, 0, -dir * 48, true);
+    page_slide(next, dir * 48, 0, false);
+    s_page = idx;
 }
 
 static lv_obj_t *mk_page(lv_obj_t *scr) {
@@ -434,32 +498,31 @@ static void build_page_focus(lv_obj_t *pg) {
     mk_pill(pg, 12, 12, "TOTAL DOWN", CLR_DOWN, 0x000000);
 
     canvas_meteor = lv_canvas_create(pg);
-    lv_obj_set_pos(canvas_meteor, 12, 46);
+    lv_obj_set_pos(canvas_meteor, 12, 44);
     lv_canvas_set_draw_buf(canvas_meteor, &cvs_meteor);
 
-    lbl_focus_num = mk_label(pg, 12, 40, &ui_font_ddin_italic_36, CLR_TEXT);
+    lbl_focus_num = mk_label(pg, 12, 34, &lv_font_montserrat_48, CLR_TEXT);
     lv_label_set_text(lbl_focus_num, "--");
     lbl_focus_unit = mk_label(pg, 12, 84, &ui_font_ddin_12, CLR_DOWN);
     lv_label_set_text(lbl_focus_unit, "MB/s");
-    // 大数字放大 2 倍显示(LVGL 缩放,保持斜体感)
-    lv_obj_set_style_transform_scale_x(lbl_focus_num, 512, 0);
-    lv_obj_set_style_transform_scale_y(lbl_focus_num, 512, 0);
-    lv_obj_set_pos(lbl_focus_num, 14, 46);
-    lv_obj_align_to(lbl_focus_unit, lbl_focus_num, LV_ALIGN_OUT_RIGHT_BOTTOM, 12, 0);
+    // 使用原生 48px 字体，避免运行时缩放造成边缘模糊。
+    lv_obj_set_pos(lbl_focus_num, 14, 34);
+    lv_obj_align_to(lbl_focus_unit, lbl_focus_num, LV_ALIGN_OUT_RIGHT_BOTTOM, 8, -4);
 
-    lbl_focus_sub = mk_label(pg, 12, 118, &ui_font_ddin_12, CLR_DIM);
+    lbl_focus_sub = mk_label(pg, 12, 108, &ui_font_ddin_12, CLR_DIM);
     lv_label_set_text(lbl_focus_sub, "UP -- MB/s");
-    mk_block(pg, 12, 110, 296, 1, CLR_BORDER);   // 1px 分隔线
-    // 峰值标记(✱ 黄,模式 C 规格)
-    lbl_focus_peak = mk_label(pg, 0, 118, &ui_font_ddin_12, CLR_YELLOW);
+    mk_block(pg, 12, 100, 296, 1, CLR_BORDER);   // 1px 分隔线
+    // 峰值单独占一行，避免与 UP 信息争抢横向空间。
+    lbl_focus_peak = mk_label(pg, 0, 126, &ui_font_ddin_12, CLR_YELLOW);
     lv_label_set_text(lbl_focus_peak, "");
-    lv_obj_align(lbl_focus_peak, LV_ALIGN_TOP_RIGHT, -12, 118);
+    lv_obj_align(lbl_focus_peak, LV_ALIGN_TOP_RIGHT, -12, 126);
 }
 
 // 页面 2:全屏曲线页 —— 无坐标轴无网格,黑底三色渐变轨道
 static void build_page_curve(lv_obj_t *pg) {
     mk_block(pg, 12, 20, 296, 1, CLR_BORDER);
-    lv_obj_t *t = mk_label(pg, 12, 3, &ui_font_ddin_12, CLR_DIM);
+    lbl_curve_state = mk_label(pg, 12, 3, &ui_font_ddin_12, CLR_DIM);
+    lv_obj_t *t = lbl_curve_state;
     lv_label_set_text(t, "10S LIVE");
     mk_block(pg, 200, 8, 3, 3, CLR_DOWN);
     lv_obj_t *ld = mk_label(pg, 207, 3, &ui_font_ddin_12, CLR_DOWN);
@@ -485,9 +548,9 @@ static void sys_row(lv_obj_t *pg, int y, const char *name, uint32_t pill_clr, lv
 }
 
 static void build_page_sys(lv_obj_t *pg) {
-    sys_row(pg, 8,  "WIFI",    CLR_UP,     &lbl_sys_ip);      // 复用显示 SSID/IP
+    sys_row(pg, 8,  "IP",      CLR_UP,     &lbl_sys_ip);
     sys_row(pg, 34, "CLIENTS", CLR_DOWN,   &lbl_sys_clients);
-    sys_row(pg, 60, "UPTIME",  CLR_YELLOW, &lbl_sys_uptime);
+    sys_row(pg, 60, "DEVICE UP", CLR_YELLOW, &lbl_sys_uptime);
     sys_row(pg, 86, "HEAP",    CLR_PING,   &lbl_sys_heap);
     mk_block(pg, 12, 112, 296, 1, CLR_BORDER);
     lv_obj_t *hint = mk_label(pg, 12, 120, &ui_font_ddin_12, CLR_DIM);
@@ -559,6 +622,8 @@ static void build_page_top(lv_obj_t *pg) {
         snprintf(rk, sizeof(rk), "#%d", i + 1);
         mk_pill(pg, 12, y, rk, i == 0 ? CLR_YELLOW : 0x3A4150, i == 0 ? 0x000000 : CLR_TEXT);
         lbl_cli[i][0] = mk_label(pg, 58, y + 2, &ui_font_ddin_12, CLR_TEXT);
+        lv_obj_set_width(lbl_cli[i][0], 150);
+        lv_label_set_long_mode(lbl_cli[i][0], LV_LABEL_LONG_CLIP);
         lv_label_set_text(lbl_cli[i][0], "--");
         lbl_cli[i][1] = mk_label(pg, 0, y + 2, &ui_font_ddin_12, CLR_DOWN);
         lv_obj_align(lbl_cli[i][1], LV_ALIGN_TOP_RIGHT, -12, y + 2);
@@ -625,7 +690,7 @@ static void boot_poll(void) {
             if (!long_fired && dt < 1200) {
                 if (pending && now - pending_ms < 350) {
                     pending = false;    // 双击:直接回主页
-                    show_page(0);
+                    show_page(0, -1);
                 } else {
                     pending = true;     // 单击待定,等双击窗口
                     pending_ms = now;
@@ -635,7 +700,7 @@ static void boot_poll(void) {
     }
     if (pending && now - pending_ms >= 350) {
         pending = false;
-        show_page((s_page + 1) % PAGE_COUNT);
+        show_page((s_page + 1) % PAGE_COUNT, 1);
     }
     if (stable == 0 && !long_fired && now - press_ms > 1200) {
         long_fired = true;
@@ -655,7 +720,7 @@ static void ui_create(void) {
     for (int i = 0; i < PAGE_COUNT; i++) s_pg[i] = mk_page(scr);
     lv_obj_t *pg0 = s_pg[0];
 
-    dot_status = lv_obj_create(scr);
+    dot_status = lv_obj_create(pg0);
     lv_obj_remove_style_all(dot_status);
     lv_obj_set_style_bg_color(dot_status, lv_color_hex(CLR_GREEN), 0);
     lv_obj_set_style_bg_opa(dot_status, LV_OPA_COVER, 0);
@@ -671,7 +736,7 @@ static void ui_create(void) {
     lv_obj_align(lbl_online, LV_ALIGN_TOP_MID, 0, 3);
 
     // PING 元信息收进橙色描边胶囊(黑底+橙描边+橙字)
-    lbl_ping_bg = lv_obj_create(scr);
+    lbl_ping_bg = lv_obj_create(pg0);
     lv_obj_remove_style_all(lbl_ping_bg);
     lv_obj_set_size(lbl_ping_bg, LV_SIZE_CONTENT, 15);
     lv_obj_align(lbl_ping_bg, LV_ALIGN_TOP_RIGHT, -12, 2);
@@ -703,13 +768,13 @@ static void ui_create(void) {
     // 反模式:去掉圆角边框面板;分区只用 1px 细分隔线
     mk_block(pg0, 12, 78, 296, 1, CLR_BORDER);
 
-    lv_obj_t *graph = lv_obj_create(scr);
+    lv_obj_t *graph = lv_obj_create(pg0);
     lv_obj_remove_style_all(graph);
     lv_obj_set_pos(graph, 12, 82);
     lv_obj_set_size(graph, 296, 74);
 
-    lv_obj_t *trend = mk_label(graph, 0, 2, &ui_font_ddin_12, CLR_DIM);
-    lv_label_set_text(trend, "10S LIVE");
+    lbl_main_curve_state = mk_label(graph, 0, 2, &ui_font_ddin_12, CLR_DIM);
+    lv_label_set_text(lbl_main_curve_state, "10S LIVE");
     // 图例:3px 色块 + 小字(色块即编码,不占胶囊)
     mk_block(graph, 78, 6, 3, 3, CLR_DOWN);
     lv_obj_t *legend_down = mk_label(graph, 85, 2, &ui_font_ddin_12, CLR_DOWN);
@@ -748,14 +813,13 @@ static void ui_create(void) {
         lv_obj_set_style_bg_opa(s_dots[i], LV_OPA_COVER, 0);
         lv_obj_set_pos(s_dots[i], 130 + i * 8, 164);
     }
-    show_page(0);
+    show_page(0, 1);
 
     gpio_config_t btn = { .pin_bit_mask = 1ULL << PIN_BOOT, .mode = GPIO_MODE_INPUT, .pull_up_en = 1 };
     gpio_config(&btn);
 }
 
 // 静默降灰/活跃点亮:无流量时大数字降为深灰(30号站待机精神)
-#define ACTIVE_BPS (48 * 1024)   // 活跃阈值 48KB/s
 #define CLR_IDLE 0x4A5260
 static void set_active_style(lv_obj_t *big, lv_obj_t *unit, uint32_t unit_clr, bool active) {
     lv_obj_set_style_text_color(big, lv_color_hex(active ? CLR_TEXT : CLR_IDLE), 0);
@@ -768,6 +832,17 @@ static void set_ping_style(float ms) {
     uint32_t c = bad ? CLR_RED : CLR_PING;
     lv_obj_set_style_border_color(lbl_ping_bg, lv_color_hex(c), 0);
     lv_obj_set_style_text_color(lbl_ping, lv_color_hex(c), 0);
+}
+
+static void set_curve_state(const char *text, uint32_t color) {
+    if (lbl_main_curve_state) {
+        lv_label_set_text(lbl_main_curve_state, text);
+        lv_obj_set_style_text_color(lbl_main_curve_state, lv_color_hex(color), 0);
+    }
+    if (lbl_curve_state) {
+        lv_label_set_text(lbl_curve_state, text);
+        lv_obj_set_style_text_color(lbl_curve_state, lv_color_hex(color), 0);
+    }
 }
 
 static float s_last_ping_ms = -1;
@@ -783,7 +858,7 @@ static long s_last_clients = -1;
 static void pages_update(void) {
     lv_label_set_text(lbl_focus_num, s_last_d);
     lv_label_set_text(lbl_focus_unit, s_last_du);
-    lv_obj_align_to(lbl_focus_unit, lbl_focus_num, LV_ALIGN_OUT_RIGHT_BOTTOM, 12, 0);
+    lv_obj_align_to(lbl_focus_unit, lbl_focus_num, LV_ALIGN_OUT_RIGHT_BOTTOM, 8, -4);
     char line[40];
     snprintf(line, sizeof(line), "UP %s %s", s_last_u, s_last_uu);
     lv_label_set_text(lbl_focus_sub, line);
@@ -935,6 +1010,8 @@ static void ui_update(void) {
     s_track[TRACK_DOWN].target = (float)d_tri / 9.0f;
     s_track[TRACK_UP].target = (float)u_tri / 7.0f;
     s_track[TRACK_PING].target = ping_ms / 47.0f;
+    meteor_note_rate(down_bps);
+    set_curve_state("10S DEMO", CLR_DIM);
     pages_update();
     return;
 #endif
@@ -942,7 +1019,8 @@ static void ui_update(void) {
     ikuai_sys_t s;
     ikuai_curve_t c;
 
-    if (ikuai_get_sys(&s) && s.ok) {
+    bool sys_ok = ikuai_get_sys(&s) && s.ok;
+    if (sys_ok) {
         char d[16], u[16];
         const char *du, *uu;
         fmt_rate(s.down_bps, d, sizeof(d), &du);
@@ -956,6 +1034,7 @@ static void ui_update(void) {
         s_last_active = s.down_bps >= ACTIVE_BPS; s_up_active = s.up_bps >= ACTIVE_BPS;
         set_active_style(lbl_down, lbl_down_unit, CLR_DOWN, s_last_active);
         set_active_style(lbl_up, lbl_up_unit, CLR_UP, s_up_active);
+        meteor_note_rate(s.down_bps);
         strncpy(s_last_d, d, sizeof(s_last_d)); strncpy(s_last_u, u, sizeof(s_last_u));
         s_last_du = du; s_last_uu = uu; s_last_clients = (long)s.online_cnt;
         char line[32];
@@ -982,11 +1061,19 @@ static void ui_update(void) {
         lv_label_set_text(lbl_online, "-- CLIENTS");
         lv_label_set_text(lbl_status, s_wifi_ok ? "WAN OFFLINE" : "WIFI OFFLINE");
         lv_obj_set_style_bg_color(dot_status, lv_color_hex(CLR_RED), 0);
+        s_last_active = false;
+        s_up_active = false;
+        set_active_style(lbl_down, lbl_down_unit, CLR_DOWN, false);
+        set_active_style(lbl_up, lbl_up_unit, CLR_UP, false);
+        set_ping_style(-1);
+        s_meteor_last_bps = 0;
         s_track[TRACK_DOWN].target = 0;
         s_track[TRACK_UP].target = 0;
     }
 
     if (ikuai_get_curve(&c) && c.n > 0) {
+        set_curve_state(!sys_ok ? "STALE" : (c.n < 10 ? "WARMING UP" : "10S LIVE"),
+                        !sys_ok ? CLR_RED : (c.n < 10 ? CLR_DIM : CLR_GREEN));
         int slot = (c.head - 1 + IKUAI_CURVE_MAX) % IKUAI_CURVE_MAX;
         float p = c.ping_ms[slot];
         if (p < 0) {
@@ -1006,6 +1093,8 @@ static void ui_update(void) {
         }
     } else {
         lv_label_set_text(lbl_ping, "PING -- MS");
+        set_ping_style(-1);
+        set_curve_state(sys_ok ? "NO DATA" : "TIMEOUT", sys_ok ? CLR_DIM : CLR_RED);
         s_track[TRACK_PING].target = 0;
     }
 
@@ -1029,7 +1118,7 @@ static void ui_timer_cb(lv_timer_t *t) {
     // 60s 无操作自动回主页(摆件的归宿感)
     if (s_page != 0 && s_last_key_ms &&
         (uint32_t)(esp_timer_get_time() / 1000) - s_last_key_ms > 60000) {
-        show_page(0);
+        show_page(0, -1);
     }
 
     // T-Display-S3 无 WS2812：状态由屏上状态点与文案承担
