@@ -4,28 +4,30 @@
 
 本目录是 T-Display-S3 的独立监控固件入口，面向板载 ST7789 屏幕和 GPIO0 BOOT 按键。
 
-## 实际显示画面
+## 十页设计与显示目标
 
-![主界面](docs/ui-preview.svg)
-![前四页预览](docs/ui-pages-preview.svg)
-![后四页预览](docs/ui-pages2-preview.svg)
+![CUKTECH 十页界面设计稿](../../designs/cuktech-ui-concepts/cuktech-ui-10-versions.png)
+
+设计稿中的视觉方向已整理成一套连续页面，而不是十套互相冲突的主题：高频总览、下行焦点、双通道、趋势和网络健康位于前五页；设备与路由管理信息位于后五页。
 
 ## 页面与按键
 
-设备为**八页单键翻页**结构（酷态科"一屏一焦点"原则），底部居中 8 个页码点（黄=当前页）：
+设备为**十页单键翻页**结构（酷态科“一屏一焦点”原则），底部居中 10 个页码点（黄=当前页）：
 
 | 页 | 内容 | 数据源（iKuai v4.0 API） |
 |---|---|---|
 | 1 | 主页数据墙：WAN 状态 / PING 胶囊 / 上下行大数字 / 三色趋势曲线 | monitoring/system（1s） |
 | 2 | 速率焦点页：原生 48px 总下行速率 + UP 副行 | 同上 |
-| 3 | 全屏曲线页：300×108 无网格三色滚动曲线 | 同上 + ICMP ping |
-| 4 | 本机状态页：IP / CLIENTS / DEVICE UP / HEAP 胶囊行 | 本地 |
-| 5 | 路由健康页：CPU/内存双大数字 + 温度 + 路由运行时间 + 固件版本 | monitoring/system 附带字段（零额外请求） |
-| 6 | WAN 线路详情页：双线路公网 IP / 网关 / 在线状态点 | monitoring/interfaces-status（3s 轮转） |
-| 7 | 终端流量排行页：下行 Top3（名称 + 实时速率，第一名黄胶囊） | monitoring/clients-online（3s 轮转） |
-| 8 | 无线 AC 状态页：AC 开关 / AP 在线数 / 2.4G·5G 终端大数字 | network/ac/services + monitoring/wireless-statistics（3s 轮转） |
+| 3 | 双通道页：上下行双大数字 + 两条独立微型趋势曲线 | 同上 |
+| 4 | 趋势优先页：300×108 无网格三色滚动曲线 + 当前数值 | 同上 + ICMP ping |
+| 5 | 网络健康页：WAN 状态结论 + PING/上下行证据 + 告警建议 | 同上 + 本地 Wi-Fi 状态 |
+| 6 | 本机状态页：IP / CLIENTS / DEVICE UP / HEAP 胶囊行 | 本地 |
+| 7 | 路由健康页：CPU/内存双大数字 + 温度 + 运行时间 + 客户端/堆内存/版本 | monitoring/system 附带字段（零额外请求） |
+| 8 | WAN 线路详情页：双线路公网 IP / 网关 / 在线状态词与状态点 | monitoring/interfaces-status（3s 轮转） |
+| 9 | 终端流量排行页：下行 Top3 + 在线数 + 总上下行摘要 | monitoring/clients-online（3s 轮转） |
+| 10 | 无线 AC 状态页：AC 开关 / AP 在线数 / 2.4G·5G 终端大数字 | network/ac/services + monitoring/wireless-statistics（3s 轮转） |
 
-> 扩展端点采用**轮转制**：每 3 秒只发一个额外请求（WAN → 终端 → AC 循环），不给路由器加压力；AC 未开启时第 8 页显示 OFF 且不再请求无线统计。
+> 扩展端点采用**轮转制**：每 3 秒只发一个额外请求（WAN → 终端 → AC 循环），不给路由器加压力；AC 未开启时第 10 页显示 OFF 且不再请求无线统计。
 
 **BOOT 键（GPIO0）**：单击 = 下一页（350ms 双击窗口内第二次按下 = 直接回主页，循环翻页带 190ms 缓出滑入动画）；长按 1.2s = 息屏/唤醒（背光 0 ↔ 配置值）。消抖 30ms。**60 秒无操作自动回主页**。
 
@@ -37,7 +39,7 @@
 - **焦点页峰值标记**：会话峰值以 `PEAK x.x MB/s *` 黄字常驻（模式 C 规格）
 - **翻页方向感动画**：向前翻从右滑入，回翻从左滑入
 - **焦点页流星汇入**：仅在流量明显变化时短暂出现 6 颗青/蓝流星，避免持续粒子遮挡主数字；设置 `APP_REDUCED_MOTION=1` 可关闭页面滑动和流星动效
-- **夜间自动降背光**：SNTP 授时（ntp.aliyun.com，CST-8）后，23:00–07:00 背光自动降到 `APP_BL_NIGHT_PCT`（默认 8%），时段可在 `config.h` 改；手动息屏优先，时间未同步时不动作
+- **夜间静音模式**：SNTP 授时（ntp.aliyun.com，CST-8）后，23:00–07:00 背光自动降到 `APP_BL_NIGHT_PCT`（默认 8%），曲线从 30 FPS 降为 15 FPS，并关闭流星和翻页动效；时段可在 `config.h` 改，手动息屏优先，时间未同步时不动作
 
 ## 硬件
 
@@ -81,7 +83,7 @@ LVGL 9.2.2 由 `src/idf_component.yml` 管理，版本锁定在 `dependencies.lo
 
 ## Build / English
 
-Run `pio run -e t-display-s3` from a clean checkout to build the offline demo. The demo uses the tracked example configuration and makes no network connection. For live iKuai monitoring, copy both example headers to `src/config.h` and `src/ikuai_cert.h`, fill in Wi‑Fi/router settings and the CA certificate, then set `APP_DEMO_MODE` to `0` before building and uploading. Set `APP_REDUCED_MOTION` to `1` for a calmer display mode.
+Run `pio run -e t-display-s3` from a clean checkout to build the offline demo. The demo uses the tracked example configuration and makes no network connection. The CUKTECH-inspired interface contains ten single-purpose pages: overview, download focus, dual traffic lanes, trend, network health, device status, router health, WAN details, top clients, and wireless AC. For live iKuai monitoring, copy both example headers to `src/config.h` and `src/ikuai_cert.h`, fill in Wi‑Fi/router settings and the CA certificate, then set `APP_DEMO_MODE` to `0` before building and uploading. Set `APP_REDUCED_MOTION` to `1` for a calmer display mode; the scheduled night mode also lowers the curve rate to 15 FPS and suppresses decorative motion.
 
 LVGL 9.2.2 is managed by `src/idf_component.yml` and pinned in `dependencies.lock`. The board-specific trimmed feature set lives in `components/lv_conf.h`. Local credentials, certificates, build output, and generated `sdkconfig` files are intentionally excluded from Git.
 

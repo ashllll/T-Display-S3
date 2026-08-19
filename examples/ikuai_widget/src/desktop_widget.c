@@ -52,6 +52,8 @@ static const char *TAG = "widget";
 static EventGroupHandle_t s_eg;
 static char s_ip[16] = "---";
 static volatile bool s_wifi_ok = false;
+static bool s_night_dim = false;
+static lv_timer_t *s_roll_timer;
 
 // ── 酷态科设计令牌：黑底 + 高饱和功能色，颜色只用于编码 ──
 #define CLR_BG       0x000000  // 纯黑底(OLED 省电)
@@ -60,18 +62,20 @@ static volatile bool s_wifi_ok = false;
 #define CLR_GRID     0x000000  // 曲线区禁用网格线
 #define CLR_TEXT     0xF5F7FA  // 主文字白
 #define CLR_DIM      0x8A93A3  // 次文字灰
-#define CLR_GREEN    0x45D39A  // 状态:在线
+#define CLR_GREEN    0x36D27E  // 状态:在线
 #define CLR_DOWN     0x37C4D6  // 数据青 = 下行
 #define CLR_UP       0x3FA9F5  // 品牌蓝 = 上行
 #define CLR_PING     0xFF7A1A  // 能量橙 = PING/警示
 #define CLR_YELLOW   0xFFC800  // 强调黄
-#define CLR_RED      0xFF5F67  // 状态:离线
+#define CLR_RED      0xFF4057  // 状态:离线
 
 #define CURVE_W 298
 #define CURVE_H 45
 // 全屏曲线页(模式 D)
 #define CURVE2_W 300
 #define CURVE2_H 108
+#define DUAL_CURVE_W 132
+#define DUAL_CURVE_H 28
 #define CURVE_FPS 30
 #define CURVE_SMOOTH_SEC 0.28f
 #define ACTIVE_BPS (48 * 1024)
@@ -128,6 +132,9 @@ static lv_obj_t *canvas_curve;
 LV_DRAW_BUF_DEFINE_STATIC(cvs_curve, CURVE_W, CURVE_H, LV_COLOR_FORMAT_RGB565);
 static lv_obj_t *canvas_curve2;
 LV_DRAW_BUF_DEFINE_STATIC(cvs_curve2, CURVE2_W, CURVE2_H, LV_COLOR_FORMAT_RGB565);
+static lv_obj_t *canvas_dual_down, *canvas_dual_up;
+LV_DRAW_BUF_DEFINE_STATIC(cvs_dual_down, DUAL_CURVE_W, DUAL_CURVE_H, LV_COLOR_FORMAT_RGB565);
+LV_DRAW_BUF_DEFINE_STATIC(cvs_dual_up, DUAL_CURVE_W, DUAL_CURVE_H, LV_COLOR_FORMAT_RGB565);
 static void meteor_step(void);
 
 typedef struct {
@@ -148,6 +155,7 @@ static uint16_t s_c_bg;
 static uint16_t s_c_grid;
 static int s_last_y[TRACK_COUNT] = { CURVE_H - 3, CURVE_H - 3, CURVE_H - 3 };
 static int s_last_y2[TRACK_COUNT] = { CURVE2_H - 3, CURVE2_H - 3, CURVE2_H - 3 };
+static int s_last_dual_y[2] = { DUAL_CURVE_H - 3, DUAL_CURVE_H - 3 };
 static uint32_t s_curve_frames;
 
 static uint16_t mix565(uint16_t bg, uint16_t fg, uint8_t a) {
@@ -230,6 +238,30 @@ static void curve_smooth_step(curve_track_t *track) {
     }
 }
 
+static void dual_curve_roll(lv_draw_buf_t *draw_buf, lv_obj_t *canvas,
+                            int lane, const curve_track_t *track) {
+    uint16_t *buf = (uint16_t *)draw_buf->data;
+    for (int y = 0; y < DUAL_CURVE_H; y++) {
+        uint16_t *row = buf + y * DUAL_CURVE_W;
+        memmove(row, row + 1, (DUAL_CURVE_W - 1) * sizeof(uint16_t));
+        row[DUAL_CURVE_W - 1] = s_c_bg;
+    }
+
+    int y = curve_y_h(track->cur, DUAL_CURVE_H);
+    int y0 = s_last_dual_y[lane];
+    int lo = y < y0 ? y : y0;
+    int hi = y > y0 ? y : y0;
+    for (int yy = lo; yy <= hi; yy++) {
+        buf[yy * DUAL_CURVE_W + DUAL_CURVE_W - 1] = track->dim;
+    }
+    buf[y * DUAL_CURVE_W + DUAL_CURVE_W - 1] = track->color;
+    if (y + 1 < DUAL_CURVE_H) {
+        buf[(y + 1) * DUAL_CURVE_W + DUAL_CURVE_W - 1] = track->color;
+    }
+    s_last_dual_y[lane] = y;
+    if (canvas && lv_obj_is_visible(canvas)) lv_obj_invalidate(canvas);
+}
+
 // 30fps 固定推进 1px：298px 宽对应约 9.9 秒，运动节奏不会因累计取整而顿挫。
 static void curve_roll(void) {
     uint16_t *buf = (uint16_t *)cvs_curve.data;
@@ -267,6 +299,9 @@ static void curve_roll(void) {
         s_last_y2[i] = y;
     }
     if (lv_obj_is_visible(canvas_curve2)) lv_obj_invalidate(canvas_curve2);
+
+    dual_curve_roll(&cvs_dual_down, canvas_dual_down, 0, &s_track[TRACK_DOWN]);
+    dual_curve_roll(&cvs_dual_up, canvas_dual_up, 1, &s_track[TRACK_UP]);
     meteor_step();
 }
 
@@ -277,6 +312,7 @@ static lv_obj_t *lbl_down_unit, *lbl_up_unit, *lbl_ping, *lbl_ip;
 static lv_obj_t *lbl_ping_bg;
 static lv_obj_t *dot_status;
 static lv_obj_t *lbl_main_curve_state, *lbl_curve_state;
+static lv_obj_t *lbl_curve_down, *lbl_curve_up, *lbl_curve_ping;
 
 static void fmt_rate(uint32_t bps, char *value, int value_cap, const char **unit) {
     if (bps >= 1048576) {
@@ -360,7 +396,7 @@ static void meteor_reset(int i) {
 static void meteor_step(void) {
     uint16_t *buf = (uint16_t *)cvs_meteor.data;
     uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
-    bool want = !APP_REDUCED_MOTION && s_page == 1 && s_last_active &&
+    bool want = !APP_REDUCED_MOTION && !s_night_dim && s_page == 1 && s_last_active &&
                 (int32_t)(s_meteor_until_ms - now) > 0;
     if (want != s_meteor_on) {
         s_meteor_on = want;
@@ -402,10 +438,10 @@ static void meteor_note_rate(uint32_t bps) {
 }
 
 
-// ═══════════════════ 多页系统(BOOT 单击翻页) ════════════════════════
-// 页面 0:主页数据墙(模式 A)   页面 1:速率焦点页(模式 C)
-// 页面 2:全屏曲线页(模式 D)   页面 3:系统状态页(模式 F 变体)
-#define PAGE_COUNT 8
+// ═══════════════════ 十页系统(BOOT 单击翻页) ═══════════════════════
+// 0 总览 / 1 下行焦点 / 2 双通道 / 3 趋势 / 4 网络健康
+// 5 设备状态 / 6 路由健康 / 7 WAN / 8 客户端排行 / 9 无线 AC
+#define PAGE_COUNT 10
 #define PIN_BOOT 0   // BOOT 键,低电平有效
 
 static lv_obj_t *s_pg[PAGE_COUNT];
@@ -416,13 +452,20 @@ static uint32_t s_last_key_ms = 0;
 
 // 焦点页元素
 static lv_obj_t *lbl_focus_num, *lbl_focus_unit, *lbl_focus_sub, *lbl_focus_peak;
+// 双通道页元素
+static lv_obj_t *lbl_dual_down, *lbl_dual_down_unit, *lbl_dual_up, *lbl_dual_up_unit;
+static lv_obj_t *lbl_dual_ping, *lbl_dual_ip, *lbl_dual_state;
+// 网络健康页元素
+static lv_obj_t *lbl_net_status, *lbl_net_detail, *lbl_net_ping;
+static lv_obj_t *lbl_net_down, *lbl_net_up, *lbl_net_footer;
 // 系统页元素
 static lv_obj_t *lbl_sys_ip, *lbl_sys_clients, *lbl_sys_uptime, *lbl_sys_heap;
 // 健康页/WAN页/排行页/AC页元素
-static lv_obj_t *lbl_cpu, *lbl_mem, *lbl_temp, *lbl_uptime;
+static lv_obj_t *lbl_health_status, *lbl_cpu, *lbl_mem, *lbl_temp, *lbl_uptime, *lbl_health_meta;
 static lv_obj_t *lbl_wan[2][3];   // [i][0=状态 1=IP 2=网关]
 static lv_obj_t *lbl_wan_dot[2];
 static lv_obj_t *lbl_cli[3][2];   // [i][0=名称 1=速率]
+static lv_obj_t *lbl_top_count, *lbl_top_total;
 static lv_obj_t *lbl_ac, *lbl_ap, *lbl_clt;
 
 static void page_translate_x(void *var, int32_t value) {
@@ -440,7 +483,7 @@ static void page_slide(lv_obj_t *pg, int32_t from, int32_t to, bool hide_when_do
     lv_obj_remove_flag(pg, LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_style_translate_x(pg, from, 0);
 
-    if (APP_REDUCED_MOTION) {
+    if (APP_REDUCED_MOTION || s_night_dim) {
         page_translate_x(pg, to);
         if (hide_when_done) {
             lv_obj_add_flag(pg, LV_OBJ_FLAG_HIDDEN);
@@ -493,7 +536,7 @@ static lv_obj_t *mk_page(lv_obj_t *scr) {
 }
 
 
-// 页面 1:速率焦点页 —— 全屏只有一个大数字(总下行速率)
+// 页面 1:下行焦点 —— 一屏一个问题：此刻下载有多快？
 static void build_page_focus(lv_obj_t *pg) {
     mk_pill(pg, 12, 12, "TOTAL DOWN", CLR_DOWN, 0x000000);
 
@@ -502,44 +545,97 @@ static void build_page_focus(lv_obj_t *pg) {
     lv_canvas_set_draw_buf(canvas_meteor, &cvs_meteor);
 
     lbl_focus_num = mk_label(pg, 12, 34, &lv_font_montserrat_48, CLR_TEXT);
+    lv_obj_set_width(lbl_focus_num, 296);
+    lv_obj_set_style_text_align(lbl_focus_num, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(lbl_focus_num, "--");
-    lbl_focus_unit = mk_label(pg, 12, 84, &ui_font_ddin_12, CLR_DOWN);
+    lbl_focus_unit = mk_label(pg, 12, 88, &ui_font_ddin_12, CLR_DOWN);
+    lv_obj_set_width(lbl_focus_unit, 296);
+    lv_obj_set_style_text_align(lbl_focus_unit, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(lbl_focus_unit, "MB/s");
     // 使用原生 48px 字体，避免运行时缩放造成边缘模糊。
-    lv_obj_set_pos(lbl_focus_num, 14, 34);
-    lv_obj_align_to(lbl_focus_unit, lbl_focus_num, LV_ALIGN_OUT_RIGHT_BOTTOM, 8, -4);
-
-    lbl_focus_sub = mk_label(pg, 12, 108, &ui_font_ddin_12, CLR_DIM);
+    lbl_focus_sub = mk_label(pg, 12, 120, &ui_font_ddin_12, CLR_DIM);
     lv_label_set_text(lbl_focus_sub, "UP -- MB/s");
-    mk_block(pg, 12, 100, 296, 1, CLR_BORDER);   // 1px 分隔线
-    // 峰值单独占一行，避免与 UP 信息争抢横向空间。
-    lbl_focus_peak = mk_label(pg, 0, 126, &ui_font_ddin_12, CLR_YELLOW);
+    mk_block(pg, 12, 110, 296, 1, CLR_BORDER);
+    lbl_focus_peak = mk_label(pg, 0, 120, &ui_font_ddin_12, CLR_YELLOW);
     lv_label_set_text(lbl_focus_peak, "");
-    lv_obj_align(lbl_focus_peak, LV_ALIGN_TOP_RIGHT, -12, 126);
+    lv_obj_align(lbl_focus_peak, LV_ALIGN_TOP_RIGHT, -12, 120);
 }
 
-// 页面 2:全屏曲线页 —— 无坐标轴无网格,黑底三色渐变轨道
+// 页面 2:双通道 —— 同时回答下行和上行，微型曲线保留方向感。
+static void build_page_dual(lv_obj_t *pg) {
+    lbl_dual_state = mk_label(pg, 12, 5, &ui_font_ddin_12, CLR_GREEN);
+    lv_label_set_text(lbl_dual_state, "WAN ONLINE");
+    lbl_dual_ping = mk_label(pg, 0, 5, &ui_font_ddin_12, CLR_PING);
+    lv_obj_align(lbl_dual_ping, LV_ALIGN_TOP_RIGHT, -12, 5);
+    lv_label_set_text(lbl_dual_ping, "PING -- MS");
+    mk_block(pg, 12, 23, 296, 1, CLR_BORDER);
+    mk_block(pg, 159, 32, 1, 104, CLR_BORDER);
+
+    mk_pill(pg, 12, 32, "DOWN", CLR_DOWN, 0x000000);
+    mk_pill(pg, 172, 32, "UP", CLR_UP, 0x000000);
+    lbl_dual_down = mk_label(pg, 12, 50, &ui_font_ddin_italic_36, CLR_TEXT);
+    lbl_dual_up = mk_label(pg, 172, 50, &ui_font_ddin_italic_36, CLR_TEXT);
+    lv_label_set_text(lbl_dual_down, "--");
+    lv_label_set_text(lbl_dual_up, "--");
+    lbl_dual_down_unit = mk_label(pg, 12, 84, &ui_font_ddin_12, CLR_DOWN);
+    lbl_dual_up_unit = mk_label(pg, 172, 84, &ui_font_ddin_12, CLR_UP);
+    lv_label_set_text(lbl_dual_down_unit, "MB/s");
+    lv_label_set_text(lbl_dual_up_unit, "MB/s");
+
+    canvas_dual_down = lv_canvas_create(pg);
+    lv_obj_set_pos(canvas_dual_down, 12, 101);
+    lv_canvas_set_draw_buf(canvas_dual_down, &cvs_dual_down);
+    canvas_dual_up = lv_canvas_create(pg);
+    lv_obj_set_pos(canvas_dual_up, 176, 101);
+    lv_canvas_set_draw_buf(canvas_dual_up, &cvs_dual_up);
+
+    lbl_dual_ip = mk_label(pg, 12, 145, &ui_font_ddin_12, CLR_DIM);
+    lv_label_set_text(lbl_dual_ip, "IP ---");
+}
+
+// 页面 3:趋势优先 —— 无坐标轴无网格，数值负责解释曲线。
 static void build_page_curve(lv_obj_t *pg) {
+    lbl_curve_down = mk_label(pg, 12, 3, &ui_font_ddin_12, CLR_DOWN);
+    lv_label_set_text(lbl_curve_down, "DOWN --");
+    lbl_curve_up = mk_label(pg, 112, 3, &ui_font_ddin_12, CLR_UP);
+    lv_label_set_text(lbl_curve_up, "UP --");
+    lbl_curve_ping = mk_label(pg, 0, 3, &ui_font_ddin_12, CLR_PING);
+    lv_obj_align(lbl_curve_ping, LV_ALIGN_TOP_RIGHT, -12, 3);
+    lv_label_set_text(lbl_curve_ping, "PING --");
     mk_block(pg, 12, 20, 296, 1, CLR_BORDER);
-    lbl_curve_state = mk_label(pg, 12, 3, &ui_font_ddin_12, CLR_DIM);
-    lv_obj_t *t = lbl_curve_state;
-    lv_label_set_text(t, "10S LIVE");
-    mk_block(pg, 200, 8, 3, 3, CLR_DOWN);
-    lv_obj_t *ld = mk_label(pg, 207, 3, &ui_font_ddin_12, CLR_DOWN);
-    lv_label_set_text(ld, "DOWN");
-    mk_block(pg, 248, 8, 3, 3, CLR_UP);
-    lv_obj_t *lu = mk_label(pg, 255, 3, &ui_font_ddin_12, CLR_UP);
-    lv_label_set_text(lu, "UP");
-    mk_block(pg, 282, 8, 3, 3, CLR_PING);
-    lv_obj_t *lp = mk_label(pg, 289, 3, &ui_font_ddin_12, CLR_PING);
-    lv_label_set_text(lp, "P");
 
     canvas_curve2 = lv_canvas_create(pg);
     lv_obj_set_pos(canvas_curve2, 12, 26);
     lv_canvas_set_draw_buf(canvas_curve2, &cvs_curve2);
+
+    lbl_curve_state = mk_label(pg, 12, 141, &ui_font_ddin_12, CLR_DIM);
+    lv_label_set_text(lbl_curve_state, "10S LIVE");
+    lv_obj_t *legend = mk_label(pg, 0, 141, &ui_font_ddin_12, CLR_DIM);
+    lv_obj_align(legend, LV_ALIGN_TOP_RIGHT, -12, 141);
+    lv_label_set_text(legend, "D / U / P");
 }
 
-// 页面 3:系统状态页 —— 胶囊标签 + 右对齐数值行
+// 页面 4:网络健康 —— 先给结论，再给 PING/上下行三项证据。
+static void build_page_network(lv_obj_t *pg) {
+    lv_obj_t *title = mk_label(pg, 12, 8, &ui_font_ddin_12, CLR_DIM);
+    lv_label_set_text(title, "NETWORK HEALTH");
+    lbl_net_status = mk_label(pg, 12, 29, &ui_font_ddin_italic_36, CLR_GREEN);
+    lv_label_set_text(lbl_net_status, "WAN ONLINE");
+    lbl_net_detail = mk_label(pg, 12, 68, &ui_font_ddin_12, CLR_GREEN);
+    lv_label_set_text(lbl_net_detail, "NETWORK STABLE");
+    mk_block(pg, 12, 88, 296, 1, CLR_BORDER);
+
+    lbl_net_ping = mk_label(pg, 12, 101, &ui_font_ddin_12, CLR_PING);
+    lbl_net_down = mk_label(pg, 112, 101, &ui_font_ddin_12, CLR_DOWN);
+    lbl_net_up = mk_label(pg, 220, 101, &ui_font_ddin_12, CLR_UP);
+    lv_label_set_text(lbl_net_ping, "PING --");
+    lv_label_set_text(lbl_net_down, "DOWN --");
+    lv_label_set_text(lbl_net_up, "UP --");
+    lbl_net_footer = mk_label(pg, 12, 132, &ui_font_ddin_12, CLR_DIM);
+    lv_label_set_text(lbl_net_footer, "NO ACTIVE ALERTS");
+}
+
+// 页面 5:设备状态页 —— 本机 IP、客户端、运行时间和堆内存。
 static void sys_row(lv_obj_t *pg, int y, const char *name, uint32_t pill_clr, lv_obj_t **val) {
     mk_pill(pg, 12, y, name, pill_clr, 0x000000);
     *val = mk_label(pg, 0, y + 2, &ui_font_ddin_12, CLR_TEXT);
@@ -560,13 +656,20 @@ static void build_page_sys(lv_obj_t *pg) {
 }
 
 
-// 页面 4:路由健康页 —— CPU/MEM 双大数字 + 温度/运行时间
+// 页面 6:路由健康页 —— CPU/MEM 双大数字 + 核心元信息。
 static void build_page_health(lv_obj_t *pg) {
-    mk_pill(pg, 12, 10, "CPU", CLR_PING, 0x000000);
-    mk_pill(pg, 172, 10, "MEM", CLR_UP, 0x000000);
-    lbl_cpu = mk_label(pg, 12, 28, &ui_font_ddin_italic_36, CLR_TEXT);
+    lv_obj_t *title = mk_label(pg, 12, 5, &ui_font_ddin_12, CLR_DIM);
+    lv_label_set_text(title, "ROUTER HEALTH");
+    lbl_health_status = mk_label(pg, 0, 5, &ui_font_ddin_12, CLR_GREEN);
+    lv_obj_align(lbl_health_status, LV_ALIGN_TOP_RIGHT, -12, 5);
+    lv_label_set_text(lbl_health_status, "ONLINE");
+    mk_block(pg, 12, 22, 296, 1, CLR_BORDER);
+
+    mk_pill(pg, 12, 31, "CPU", CLR_PING, 0x000000);
+    mk_pill(pg, 172, 31, "MEM", CLR_UP, 0x000000);
+    lbl_cpu = mk_label(pg, 12, 47, &ui_font_ddin_italic_36, CLR_TEXT);
     lv_label_set_text(lbl_cpu, "--");
-    lbl_mem = mk_label(pg, 172, 28, &ui_font_ddin_italic_36, CLR_TEXT);
+    lbl_mem = mk_label(pg, 172, 47, &ui_font_ddin_italic_36, CLR_TEXT);
     lv_label_set_text(lbl_mem, "--");
     lv_obj_t *u1 = mk_label(pg, 12, 68, &ui_font_ddin_12, CLR_PING);
     lv_label_set_text(u1, "%");
@@ -574,20 +677,18 @@ static void build_page_health(lv_obj_t *pg) {
     lv_obj_t *u2 = mk_label(pg, 172, 68, &ui_font_ddin_12, CLR_UP);
     lv_label_set_text(u2, "%");
     lv_obj_align_to(u2, lbl_mem, LV_ALIGN_OUT_RIGHT_BOTTOM, 4, -6);
-    mk_block(pg, 12, 82, 296, 1, CLR_BORDER);
-    mk_pill(pg, 12, 92, "TEMP", CLR_YELLOW, 0x000000);
-    lbl_temp = mk_label(pg, 0, 94, &ui_font_ddin_12, CLR_TEXT);
-    lv_obj_align(lbl_temp, LV_ALIGN_TOP_RIGHT, -12, 94);
+    mk_block(pg, 12, 91, 296, 1, CLR_BORDER);
+    mk_pill(pg, 12, 100, "TEMP", CLR_YELLOW, 0x000000);
+    lbl_temp = mk_label(pg, 92, 102, &ui_font_ddin_12, CLR_TEXT);
     lv_label_set_text(lbl_temp, "--");
-    mk_pill(pg, 12, 118, "ROUTER UPTIME", CLR_DOWN, 0x000000);
-    lbl_uptime = mk_label(pg, 0, 120, &ui_font_ddin_12, CLR_TEXT);
-    lv_obj_align(lbl_uptime, LV_ALIGN_TOP_RIGHT, -12, 120);
+    mk_pill(pg, 172, 100, "UPTIME", CLR_DOWN, 0x000000);
+    lbl_uptime = mk_label(pg, 244, 102, &ui_font_ddin_12, CLR_TEXT);
     lv_label_set_text(lbl_uptime, "--");
-    lv_obj_t *ver = mk_label(pg, 12, 146, &ui_font_ddin_12, CLR_DIM);
-    lv_label_set_text(ver, "VER --");
+    lbl_health_meta = mk_label(pg, 12, 129, &ui_font_ddin_12, CLR_DIM);
+    lv_label_set_text(lbl_health_meta, "CLIENTS -- · HEAP -- · VER --");
 }
 
-// 页面 5:WAN 线路详情页 —— 状态点 + 公网 IP + 网关
+// 页面 7:WAN 线路详情页 —— 状态点 + 状态词 + 公网 IP + 网关。
 static void build_page_wan(lv_obj_t *pg) {
     for (int i = 0; i < 2; i++) {
         int y = 12 + i * 74;
@@ -600,6 +701,9 @@ static void build_page_wan(lv_obj_t *pg) {
         lv_obj_set_style_radius(lbl_wan_dot[i], 3, 0);
         lv_obj_set_pos(lbl_wan_dot[i], 302, y + 4);
         lv_obj_set_size(lbl_wan_dot[i], 6, 6);
+        lbl_wan[i][0] = mk_label(pg, 0, y + 2, &ui_font_ddin_12, CLR_GREEN);
+        lv_obj_align(lbl_wan[i][0], LV_ALIGN_TOP_RIGHT, -24, y + 2);
+        lv_label_set_text(lbl_wan[i][0], "OFFLINE");
         mk_pill(pg, 12, y + 22, "IP", CLR_DOWN, 0x000000);
         lbl_wan[i][1] = mk_label(pg, 0, y + 24, &ui_font_ddin_12, CLR_TEXT);
         lv_obj_align(lbl_wan[i][1], LV_ALIGN_TOP_RIGHT, -12, y + 24);
@@ -612,12 +716,15 @@ static void build_page_wan(lv_obj_t *pg) {
     }
 }
 
-// 页面 6:终端流量排行页 —— Top3 下行(名次黄/灰胶囊 + 名称 + 速率)
+// 页面 8:终端流量排行页 —— Top3 下行 + 客户端和总流量摘要。
 static void build_page_top(lv_obj_t *pg) {
     lv_obj_t *t = mk_label(pg, 12, 8, &ui_font_ddin_12, CLR_DIM);
     lv_label_set_text(t, "TOP DOWNLOADERS");
+    lbl_top_count = mk_label(pg, 0, 8, &ui_font_ddin_12, CLR_DIM);
+    lv_obj_align(lbl_top_count, LV_ALIGN_TOP_RIGHT, -12, 8);
+    lv_label_set_text(lbl_top_count, "-- CLIENTS");
     for (int i = 0; i < 3; i++) {
-        int y = 30 + i * 40;
+        int y = 29 + i * 35;
         char rk[4];
         snprintf(rk, sizeof(rk), "#%d", i + 1);
         mk_pill(pg, 12, y, rk, i == 0 ? CLR_YELLOW : 0x3A4150, i == 0 ? 0x000000 : CLR_TEXT);
@@ -628,11 +735,14 @@ static void build_page_top(lv_obj_t *pg) {
         lbl_cli[i][1] = mk_label(pg, 0, y + 2, &ui_font_ddin_12, CLR_DOWN);
         lv_obj_align(lbl_cli[i][1], LV_ALIGN_TOP_RIGHT, -12, y + 2);
         lv_label_set_text(lbl_cli[i][1], "--");
-        if (i < 2) mk_block(pg, 12, y + 30, 296, 1, CLR_BORDER);
+        if (i < 2) mk_block(pg, 12, y + 27, 296, 1, CLR_BORDER);
     }
+    mk_block(pg, 12, 137, 296, 1, CLR_BORDER);
+    lbl_top_total = mk_label(pg, 12, 144, &ui_font_ddin_12, CLR_DIM);
+    lv_label_set_text(lbl_top_total, "TOTAL DOWN -- · UP --");
 }
 
-// 页面 7:无线 AC 状态页
+// 页面 9:无线 AC 状态页。
 static void build_page_ac(lv_obj_t *pg) {
     mk_pill(pg, 12, 12, "WIRELESS AC", CLR_UP, 0x000000);
     lbl_ac = mk_label(pg, 0, 14, &ui_font_ddin_12, CLR_TEXT);
@@ -652,8 +762,6 @@ static void build_page_ac(lv_obj_t *pg) {
 
 // ── 夜间自动降背光:APP_NIGHT_START~APP_NIGHT_END 时段降到 APP_BL_NIGHT_PCT ──
 // 依赖 SNTP;时间未同步(年<2024)时不动作。手动息屏(s_bl_off)优先。
-static bool s_night_dim = false;
-
 static void night_dim_poll(void) {
     if (s_bl_off) return;                   // 手动息屏中,不干预
     time_t t = time(NULL);
@@ -666,6 +774,9 @@ static void night_dim_poll(void) {
     if (night != s_night_dim) {
         s_night_dim = night;
         lcd_set_backlight(night ? APP_BL_NIGHT_PCT : APP_BL_PCT);
+        if (s_roll_timer) {
+            lv_timer_set_period(s_roll_timer, night ? (1000 / 15) : (1000 / CURVE_FPS));
+        }
     }
 }
 
@@ -797,21 +908,25 @@ static void ui_create(void) {
     lv_obj_align(source, LV_ALIGN_TOP_RIGHT, -12, 157);
 
     build_page_focus(s_pg[1]);
-    build_page_curve(s_pg[2]);
-    build_page_sys(s_pg[3]);
-    build_page_health(s_pg[4]);
-    build_page_wan(s_pg[5]);
-    build_page_top(s_pg[6]);
-    build_page_ac(s_pg[7]);
+    build_page_dual(s_pg[2]);
+    build_page_curve(s_pg[3]);
+    build_page_network(s_pg[4]);
+    build_page_sys(s_pg[5]);
+    build_page_health(s_pg[6]);
+    build_page_wan(s_pg[7]);
+    build_page_top(s_pg[8]);
+    build_page_ac(s_pg[9]);
 
-    // 页码指示点(底部居中,8 点)
+    // 页码指示点(底部居中,10 点)
+    const int dots_w = PAGE_COUNT * 4 + (PAGE_COUNT - 1) * 4;
+    const int dots_x = (LCD_W - dots_w) / 2;
     for (int i = 0; i < PAGE_COUNT; i++) {
         s_dots[i] = lv_obj_create(scr);
         lv_obj_remove_style_all(s_dots[i]);
         lv_obj_set_size(s_dots[i], 4, 4);
         lv_obj_set_style_radius(s_dots[i], 2, 0);
         lv_obj_set_style_bg_opa(s_dots[i], LV_OPA_COVER, 0);
-        lv_obj_set_pos(s_dots[i], 130 + i * 8, 164);
+        lv_obj_set_pos(s_dots[i], dots_x + i * 8, 164);
     }
     show_page(0, 1);
 
@@ -848,6 +963,7 @@ static void set_curve_state(const char *text, uint32_t color) {
 static float s_last_ping_ms = -1;
 static bool s_last_active = false;
 static bool s_up_active = false;
+static bool s_last_sys_ok = false;
 
 // 缓存最近一次速率文本,供焦点页使用
 static char s_last_d[16] = "--", s_last_u[16] = "--";
@@ -858,10 +974,76 @@ static long s_last_clients = -1;
 static void pages_update(void) {
     lv_label_set_text(lbl_focus_num, s_last_d);
     lv_label_set_text(lbl_focus_unit, s_last_du);
-    lv_obj_align_to(lbl_focus_unit, lbl_focus_num, LV_ALIGN_OUT_RIGHT_BOTTOM, 8, -4);
-    char line[40];
+    char line[64];
     snprintf(line, sizeof(line), "UP %s %s", s_last_u, s_last_uu);
     lv_label_set_text(lbl_focus_sub, line);
+
+    // 双通道页与趋势页共用同一份 1s 数值缓存，曲线则按帧连续推进。
+    lv_label_set_text(lbl_dual_down, s_last_d);
+    lv_label_set_text(lbl_dual_down_unit, s_last_du);
+    lv_label_set_text(lbl_dual_up, s_last_u);
+    lv_label_set_text(lbl_dual_up_unit, s_last_uu);
+    set_active_style(lbl_dual_down, lbl_dual_down_unit, CLR_DOWN, s_last_active);
+    set_active_style(lbl_dual_up, lbl_dual_up_unit, CLR_UP, s_up_active);
+    snprintf(line, sizeof(line), "IP %s", s_ip);
+    lv_label_set_text(lbl_dual_ip, line);
+    snprintf(line, sizeof(line), "PING %s", s_last_ping_ms < 0 ? "-- MS" : "");
+    if (s_last_ping_ms >= 0) snprintf(line, sizeof(line), "PING %.0f MS", (double)s_last_ping_ms);
+    lv_label_set_text(lbl_dual_ping, line);
+    lv_obj_set_style_text_color(lbl_dual_ping,
+        lv_color_hex(s_last_ping_ms < 0 || s_last_ping_ms >= 80 ? CLR_RED : CLR_PING), 0);
+
+    snprintf(line, sizeof(line), "DOWN %s%s", s_last_d, s_last_du);
+    lv_label_set_text(lbl_curve_down, line);
+    snprintf(line, sizeof(line), "UP %s%s", s_last_u, s_last_uu);
+    lv_label_set_text(lbl_curve_up, line);
+    if (s_last_ping_ms < 0) snprintf(line, sizeof(line), "PING --");
+    else snprintf(line, sizeof(line), "PING %.0f", (double)s_last_ping_ms);
+    lv_label_set_text(lbl_curve_ping, line);
+    lv_obj_set_style_text_color(lbl_curve_ping,
+        lv_color_hex(s_last_ping_ms < 0 || s_last_ping_ms >= 80 ? CLR_RED : CLR_PING), 0);
+
+    // 网络健康页先给可读结论，颜色只作为第二层编码。
+    uint32_t net_color;
+    const char *net_status;
+    const char *net_detail;
+    const char *net_footer;
+    if (!s_last_sys_ok) {
+        net_color = CLR_RED;
+        net_status = "WAN OFFLINE";
+        net_detail = s_wifi_ok ? "CHECK ROUTER / API" : "WIFI DISCONNECTED";
+        net_footer = "ACTION REQUIRED";
+    } else if (s_last_ping_ms < 0) {
+        net_color = CLR_RED;
+        net_status = "PING TIMEOUT";
+        net_detail = "TRAFFIC DATA AVAILABLE";
+        net_footer = "CHECK GATEWAY ICMP";
+    } else if (s_last_ping_ms >= 80) {
+        net_color = CLR_PING;
+        net_status = "DEGRADED";
+        net_detail = "HIGH LATENCY";
+        net_footer = "WATCH PING TREND";
+    } else {
+        net_color = CLR_GREEN;
+        net_status = "WAN ONLINE";
+        net_detail = "NETWORK STABLE";
+        net_footer = "NO ACTIVE ALERTS";
+    }
+    lv_label_set_text(lbl_net_status, net_status);
+    lv_label_set_text(lbl_net_detail, net_detail);
+    lv_label_set_text(lbl_net_footer, net_footer);
+    lv_obj_set_style_text_color(lbl_net_status, lv_color_hex(net_color), 0);
+    lv_obj_set_style_text_color(lbl_net_detail, lv_color_hex(net_color), 0);
+    lv_label_set_text(lbl_dual_state, s_last_sys_ok ? "WAN ONLINE" : "WAN OFFLINE");
+    lv_obj_set_style_text_color(lbl_dual_state, lv_color_hex(s_last_sys_ok ? CLR_GREEN : CLR_RED), 0);
+
+    if (s_last_ping_ms < 0) snprintf(line, sizeof(line), "PING --");
+    else snprintf(line, sizeof(line), "PING %.0fMS", (double)s_last_ping_ms);
+    lv_label_set_text(lbl_net_ping, line);
+    snprintf(line, sizeof(line), "DOWN %s", s_last_d);
+    lv_label_set_text(lbl_net_down, line);
+    snprintf(line, sizeof(line), "UP %s", s_last_u);
+    lv_label_set_text(lbl_net_up, line);
 
     lv_label_set_text(lbl_sys_ip, s_ip);
     snprintf(line, sizeof(line), "%ld", s_last_clients < 0 ? 0 : s_last_clients);
@@ -871,6 +1053,15 @@ static void pages_update(void) {
     lv_label_set_text(lbl_sys_uptime, line);
     snprintf(line, sizeof(line), "%u KB", (unsigned)(heap_caps_get_free_size(MALLOC_CAP_8BIT) / 1024));
     lv_label_set_text(lbl_sys_heap, line);
+
+    lv_label_set_text(lbl_health_status, s_last_sys_ok ? "ONLINE" : "OFFLINE");
+    lv_obj_set_style_text_color(lbl_health_status,
+        lv_color_hex(s_last_sys_ok ? CLR_GREEN : CLR_RED), 0);
+    snprintf(line, sizeof(line), "%ld CLIENTS", s_last_clients < 0 ? 0 : s_last_clients);
+    lv_label_set_text(lbl_top_count, line);
+    snprintf(line, sizeof(line), "TOTAL DOWN %s%s · UP %s%s",
+             s_last_d, s_last_du, s_last_u, s_last_uu);
+    lv_label_set_text(lbl_top_total, line);
 
     // 焦点页:活跃点亮/静默降灰 + 峰值标记
     {
@@ -908,11 +1099,14 @@ static void pages_update(void) {
     // 健康页:CPU/MEM 用 1s 实时数据;温度/运行时间用扩展数据
     {
         ikuai_sys_t sy;
-        if (ikuai_get_sys(&sy)) {
+        if (ikuai_get_sys(&sy) && sy.ok) {
             snprintf(line, sizeof(line), "%.0f", (double)sy.cpu_pct);
             lv_label_set_text(lbl_cpu, line);
             snprintf(line, sizeof(line), "%.0f", (double)sy.mem_pct);
             lv_label_set_text(lbl_mem, line);
+        } else {
+            lv_label_set_text(lbl_cpu, "--");
+            lv_label_set_text(lbl_mem, "--");
         }
     }
     if (has_ex) {
@@ -921,13 +1115,21 @@ static void pages_update(void) {
         uint32_t d = ex.uptime_sec / 86400, h = (ex.uptime_sec % 86400) / 3600;
         snprintf(line, sizeof(line), "%lud %02luh", (unsigned long)d, (unsigned long)h);
         lv_label_set_text(lbl_uptime, line);
+        snprintf(line, sizeof(line), "%ld CLT · %uK HEAP · V%s",
+                 s_last_clients < 0 ? 0 : s_last_clients,
+                 (unsigned)(heap_caps_get_free_size(MALLOC_CAP_8BIT) / 1024),
+                 ex.version[0] ? ex.version : "--");
+        lv_label_set_text(lbl_health_meta, line);
         // WAN 页
         for (int i = 0; i < 2; i++) {
             bool on = i < ex.wan_cnt;
+            bool ok = on && ex.wan[i].ok;
+            lv_label_set_text(lbl_wan[i][0], ok ? "ONLINE" : "OFFLINE");
+            lv_obj_set_style_text_color(lbl_wan[i][0], lv_color_hex(ok ? CLR_GREEN : CLR_RED), 0);
             lv_label_set_text(lbl_wan[i][1], on ? ex.wan[i].ip : "--");
             lv_label_set_text(lbl_wan[i][2], on ? ex.wan[i].gateway : "--");
             lv_obj_set_style_bg_color(lbl_wan_dot[i],
-                lv_color_hex(on && ex.wan[i].ok ? CLR_GREEN : CLR_RED), 0);
+                lv_color_hex(ok ? CLR_GREEN : CLR_RED), 0);
         }
         // 排行页
         for (int i = 0; i < 3; i++) {
@@ -951,7 +1153,13 @@ static void pages_update(void) {
     } else {
         lv_label_set_text(lbl_temp, "--");
         lv_label_set_text(lbl_uptime, "--");
+        snprintf(line, sizeof(line), "%ld CLT · %uK HEAP · V--",
+                 s_last_clients < 0 ? 0 : s_last_clients,
+                 (unsigned)(heap_caps_get_free_size(MALLOC_CAP_8BIT) / 1024));
+        lv_label_set_text(lbl_health_meta, line);
         for (int i = 0; i < 2; i++) {
+            lv_label_set_text(lbl_wan[i][0], "OFFLINE");
+            lv_obj_set_style_text_color(lbl_wan[i][0], lv_color_hex(CLR_RED), 0);
             lv_label_set_text(lbl_wan[i][1], "--");
             lv_label_set_text(lbl_wan[i][2], "--");
             lv_obj_set_style_bg_color(lbl_wan_dot[i], lv_color_hex(CLR_RED), 0);
@@ -994,6 +1202,7 @@ static void ui_update(void) {
     lv_obj_align_to(lbl_down_unit, lbl_down, LV_ALIGN_OUT_RIGHT_BOTTOM, 5, -6);
     lv_obj_align_to(lbl_up_unit, lbl_up, LV_ALIGN_OUT_RIGHT_BOTTOM, 5, -6);
     s_last_active = down_bps >= ACTIVE_BPS; s_up_active = up_bps >= ACTIVE_BPS;
+    s_last_sys_ok = true;
     set_active_style(lbl_down, lbl_down_unit, CLR_DOWN, s_last_active);
     set_active_style(lbl_up, lbl_up_unit, CLR_UP, s_up_active);
     s_last_ping_ms = ping_ms;
@@ -1020,6 +1229,7 @@ static void ui_update(void) {
     ikuai_curve_t c;
 
     bool sys_ok = ikuai_get_sys(&s) && s.ok;
+    s_last_sys_ok = sys_ok;
     if (sys_ok) {
         char d[16], u[16];
         const char *du, *uu;
@@ -1063,6 +1273,11 @@ static void ui_update(void) {
         lv_obj_set_style_bg_color(dot_status, lv_color_hex(CLR_RED), 0);
         s_last_active = false;
         s_up_active = false;
+        strncpy(s_last_d, "--", sizeof(s_last_d));
+        strncpy(s_last_u, "--", sizeof(s_last_u));
+        s_last_du = "";
+        s_last_uu = "";
+        s_last_clients = -1;
         set_active_style(lbl_down, lbl_down_unit, CLR_DOWN, false);
         set_active_style(lbl_up, lbl_up_unit, CLR_UP, false);
         set_ping_style(-1);
@@ -1079,6 +1294,7 @@ static void ui_update(void) {
         if (p < 0) {
             lv_label_set_text(lbl_ping, "PING -- MS");
             set_ping_style(-1);
+            s_last_ping_ms = -1;
             s_track[TRACK_PING].target = 0;
         }
         else {
@@ -1086,6 +1302,7 @@ static void ui_update(void) {
             snprintf(line, sizeof(line), "PING %.0f MS", p);
             lv_label_set_text(lbl_ping, line);
             set_ping_style(p);
+            s_last_ping_ms = p;
             if (p > s_peak_ping) s_peak_ping = p;
             else s_peak_ping = s_peak_ping * 0.985f + p * 0.015f;
             if (s_peak_ping < 50.0f) s_peak_ping = 50.0f;
@@ -1094,6 +1311,7 @@ static void ui_update(void) {
     } else {
         lv_label_set_text(lbl_ping, "PING -- MS");
         set_ping_style(-1);
+        s_last_ping_ms = -1;
         set_curve_state(sys_ok ? "NO DATA" : "TIMEOUT", sys_ok ? CLR_DIM : CLR_RED);
         s_track[TRACK_PING].target = 0;
     }
@@ -1109,7 +1327,6 @@ static void ui_update(void) {
 }
 
 static lv_timer_t *s_ui_timer;
-static lv_timer_t *s_roll_timer;
 
 static void ui_timer_cb(lv_timer_t *t) {
     ui_update();
@@ -1167,6 +1384,12 @@ static void ui_task(void *arg) {
     curve_clear();
     uint16_t *b2 = (uint16_t *)cvs_curve2.data;
     for (int i = 0; i < CURVE2_W * CURVE2_H; i++) b2[i] = s_c_bg;
+    uint16_t *bd = (uint16_t *)cvs_dual_down.data;
+    uint16_t *bu = (uint16_t *)cvs_dual_up.data;
+    for (int i = 0; i < DUAL_CURVE_W * DUAL_CURVE_H; i++) {
+        bd[i] = s_c_bg;
+        bu[i] = s_c_bg;
+    }
 
     const esp_timer_create_args_t tmr_args = { .callback = lv_tick_cb, .name = "lv_tick" };
     esp_timer_handle_t tmr;
