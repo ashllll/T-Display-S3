@@ -261,3 +261,16 @@ For the ESP-IDF version of T-Display-S3 examples, see [LilyGo-Display-IDF](https
 * The default is onboard antenna. If you need to use an external antenna, you need to rotate the resistor in the red position in the image below to the position highlighted in yellow to switch to external antenna mode.
 
 <img src="./image/WiFi.png" alt="antenna" width="480"/>
+
+### Electrical parameters
+
+| Features                 | Details    |
+| ------------------------ | ---------- |
+| 🔗USB-C Input Voltage     | 5V         |
+| 🔋Battery Voltage         | 3.7V~4.2V  |
+| 🔋Battery connecter model | JST 1.25mm |
+| 📍**VBUS** ( Pin header)  | 5V         |
+| 📍**VBAT** ( Pin header)  | 4.2V       |
+
+* 3V Pin Header no more than 100mA load
+* 5V Pin Header power source from USB-C, load capacity depends on USB-C adapter
