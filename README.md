@@ -264,13 +264,13 @@ For the ESP-IDF version of T-Display-S3 examples, see [LilyGo-Display-IDF](https
 
 ### Electrical parameters
 
-| Features                 | Details    |
-| ------------------------ | ---------- |
-| 🔗USB-C Input Voltage     | 5V         |
-| 🔋Battery Voltage         | 3.7V~4.2V  |
-| 🔋Battery connecter model | JST 1.25mm |
-| 📍**VBUS** ( Pin header)  | 5V         |
-| 📍**VBAT** ( Pin header)  | 4.2V       |
+| Features                 | Details     |
+| ------------------------ | ----------- |
+| 🔗USB-C input voltage     | 5V          |
+| 🔋Battery voltage         | 3.7V~4.2V   |
+| 🔋Battery Connector Model | JST 1.25 mm |
+| 📍**VBUS** (pin header)   | 5V          |
+| 📍**VBAT** (pin header)   | 4.2V        |
 
-* 3V Pin Header no more than 100mA load
-* 5V Pin Header power source from USB-C, load capacity depends on USB-C adapter
+* 3V pin header load does not exceed 100mA
+* The 5V pin header power source comes from USB-C, and the load capacity depends on the USB-C adapter

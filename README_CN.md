@@ -13,11 +13,11 @@
 
 ## 1. 支持的产品
 
-| 产品 (PinMap)           | SOC        | Flash | PSRAM    | 分辨率   | 尺寸     |
-| ----------------------- | ---------- | ----- | -------- | -------- | -------- |
-| [T-Display-S3][1]       | ESP32-S3R8 | 16MB  | 8MB(OPI) | 170x320  | 1.9 英寸 |
-| [T-Display-S3-Touch][2] | ESP32-S3R8 | 16MB  | 8MB(OPI) | 170x320  | 1.9 英寸 |
-| [T-Display-S3-MIDI][3]  |            |       |          |          |          |
+| 产品 (PinMap)           | SOC        | Flash | PSRAM    | 分辨率  | 尺寸     |
+| ----------------------- | ---------- | ----- | -------- | ------- | -------- |
+| [T-Display-S3][1]       | ESP32-S3R8 | 16MB  | 8MB(OPI) | 170x320 | 1.9 英寸 |
+| [T-Display-S3-Touch][2] | ESP32-S3R8 | 16MB  | 8MB(OPI) | 170x320 | 1.9 英寸 |
+| [T-Display-S3-MIDI][3]  |            |       |          |         |          |
 
 [1]: https://www.lilygo.cc/products/t-display-s3?variant=42589373268149
 [2]: https://www.lilygo.cc/products/t-display-s3?variant=42351558590645
@@ -91,25 +91,25 @@
 6. 选择任意示例，双击 `.ino` 文件打开。
 7. 在 Arduino IDE 中，打开 `Tools` 菜单，按以下表格配置：
 
-    | Arduino IDE 设置项                    | 值                                |
-    | ------------------------------------ | --------------------------------- |
-    | Board                                | **ESP32S3 Dev Module**            |
+    | Arduino IDE 设置项                   | 值                                 |
+    | ------------------------------------ | ---------------------------------- |
+    | Board                                | **ESP32S3 Dev Module**             |
     | Port                                 | 选择你的串口                       |
-    | USB CDC On Boot                      | Enable                            |
-    | CPU Frequency                        | 240MHz (WiFi)                     |
-    | Core Debug Level                     | None                              |
-    | USB DFU On Boot                      | Disable                           |
-    | Erase All Flash Before Sketch Upload | Disable                           |
-    | Events Run On                        | Core1                             |
-    | Flash Mode                           | QIO 80MHz                         |
-    | Flash Size                           | **16MB (128Mb)**                  |
-    | Arduino Runs On                      | Core1                             |
-    | USB Firmware MSC On Boot             | Disable                           |
-    | Partition Scheme                     | **16M Flash (3M APP/9.9MB FATFS)**|
-    | PSRAM                                | **OPI PSRAM**                     |
-    | Upload Mode                          | **UART0/Hardware CDC**            |
-    | Upload Speed                         | 921600                            |
-    | USB Mode                             | **CDC and JTAG**                  |
+    | USB CDC On Boot                      | Enable                             |
+    | CPU Frequency                        | 240MHz (WiFi)                      |
+    | Core Debug Level                     | None                               |
+    | USB DFU On Boot                      | Disable                            |
+    | Erase All Flash Before Sketch Upload | Disable                            |
+    | Events Run On                        | Core1                              |
+    | Flash Mode                           | QIO 80MHz                          |
+    | Flash Size                           | **16MB (128Mb)**                   |
+    | Arduino Runs On                      | Core1                              |
+    | USB Firmware MSC On Boot             | Disable                            |
+    | Partition Scheme                     | **16M Flash (3M APP/9.9MB FATFS)** |
+    | PSRAM                                | **OPI PSRAM**                      |
+    | Upload Mode                          | **UART0/Hardware CDC**             |
+    | Upload Speed                         | 921600                             |
+    | USB Mode                             | **CDC and JTAG**                   |
 
     > **加粗** 的选项为必选项，其余根据实际情况选择。
 
@@ -130,33 +130,33 @@ T-Display-S3 的 ESP-IDF 版本示例，请前往 [LilyGo-Display-IDF](https://g
 
 ## 引脚定义
 
-| 名称          | GPIO | 说明              |
-| ------------- | ---- | ----------------- |
-| LCD BL        | 38   | 背光控制          |
-| LCD D0        | 39   |                   |
-| LCD D1        | 40   |                   |
-| LCD D2        | 41   |                   |
-| LCD D3        | 42   |                   |
-| LCD D4        | 45   |                   |
-| LCD D5        | 46   |                   |
-| LCD D6        | 47   |                   |
-| LCD D7        | 48   |                   |
-| LCD RST       | 5    | 复位              |
-| LCD CS        | 6    | 片选              |
-| LCD DC        | 7    | 数据/命令         |
-| LCD WR        | 8    | 写使能            |
-| LCD RD        | 9    | 读使能            |
-| Power On      | 15   | 外设电源控制      |
-| Button 1      | 0    | BOOT 按钮         |
-| Button 2      | 14   |                   |
-| Battery Volt  | 4    | 电池电压 ADC      |
-| IIC SCL       | 17   |                   |
-| IIC SDA       | 18   |                   |
-| Touch INT     | 16   | 触摸中断          |
-| Touch RES     | 21   | 触摸复位          |
-| SD CMD        | 13   | SD 卡             |
-| SD CLK        | 11   | SD 卡             |
-| SD D0         | 12   | SD 卡             |
+| 名称         | GPIO | 说明         |
+| ------------ | ---- | ------------ |
+| LCD BL       | 38   | 背光控制     |
+| LCD D0       | 39   |              |
+| LCD D1       | 40   |              |
+| LCD D2       | 41   |              |
+| LCD D3       | 42   |              |
+| LCD D4       | 45   |              |
+| LCD D5       | 46   |              |
+| LCD D6       | 47   |              |
+| LCD D7       | 48   |              |
+| LCD RST      | 5    | 复位         |
+| LCD CS       | 6    | 片选         |
+| LCD DC       | 7    | 数据/命令    |
+| LCD WR       | 8    | 写使能       |
+| LCD RD       | 9    | 读使能       |
+| Power On     | 15   | 外设电源控制 |
+| Button 1     | 0    | BOOT 按钮    |
+| Button 2     | 14   |              |
+| Battery Volt | 4    | 电池电压 ADC |
+| IIC SCL      | 17   |              |
+| IIC SDA      | 18   |              |
+| Touch INT    | 16   | 触摸中断     |
+| Touch RES    | 21   | 触摸复位     |
+| SD CMD       | 13   | SD 卡        |
+| SD CLK       | 11   | SD 卡        |
+| SD D0        | 12   | SD 卡        |
 
 > [!IMPORTANT]
 >
@@ -179,10 +179,10 @@ T-Display-S3 的 ESP-IDF 版本示例，请前往 [LilyGo-Display-IDF](https://g
 
 ## 8. 资料
 
-| 产品 (PinMap)           | 原理图                                                 | 尺寸图                     | PCB 3D                                   | 引脚图                                  |
-| ----------------------- | ------------------------------------------------------ | --------------------------- | ----------------------------------------- | ---------------------------------------- |
-| [T-Display-S3][1]       | [原理图](./schematic/T_Display_S3.pdf)                | [DWG](./dimensions/PCB.dwg) | [STP](./dimensions/t-display-s3-full.stp) | [引脚图](./image/T-DISPLAY-S3.jpg)      |
-| [T-Display-S3-Touch][2] | [原理图](./schematic/T_Display_S3.pdf)                | [DWG](./dimensions/PCB.dwg) | [STP](./dimensions/t-display-s3-full.stp) | [引脚图](./image/T-DISPLAY-S3-TOUCH.png)|
+| 产品 (PinMap)           | 原理图                                               | 尺寸图                      | PCB 3D                                    | 引脚图                                   |
+| ----------------------- | ---------------------------------------------------- | --------------------------- | ----------------------------------------- | ---------------------------------------- |
+| [T-Display-S3][1]       | [原理图](./schematic/T_Display_S3.pdf)               | [DWG](./dimensions/PCB.dwg) | [STP](./dimensions/t-display-s3-full.stp) | [引脚图](./image/T-DISPLAY-S3.jpg)       |
+| [T-Display-S3-Touch][2] | [原理图](./schematic/T_Display_S3.pdf)               | [DWG](./dimensions/PCB.dwg) | [STP](./dimensions/t-display-s3-full.stp) | [引脚图](./image/T-DISPLAY-S3-TOUCH.png) |
 | [T-Display-S3-MIDI][3]  | [原理图](./schematic/SCH_T-Display-S3-MIDI_V1.1.pdf) | N.A                         | N.A                                       | N.A                                      |
 
 ## 9. 常见问题
@@ -238,10 +238,10 @@ T-Display-S3 的 ESP-IDF 版本示例，请前往 [LilyGo-Display-IDF](https://g
 
 ## LED 说明
 
-| 功能         | 颜色 |
-| ------------ | ---- |
-| 充电指示灯   | 红色 |
-| V3V 指示灯   | 绿色 |
+| 功能       | 颜色 |
+| ---------- | ---- |
+| 充电指示灯 | 红色 |
+| V3V 指示灯 | 绿色 |
 
 ### 充电指示灯状态
 
@@ -264,13 +264,13 @@ T-Display-S3 的 ESP-IDF 版本示例，请前往 [LilyGo-Display-IDF](https://g
 
 ### 电气参数
 
-|特点|详情 |
-| ------------------------ | ---------- |
-| 🔗USB-C 输入电压 | 5V |
-| 🔋电池电压 | 3.7V~4.2V |
-| 🔋电池连接器型号 | JST 1.25 毫米 |
-| 📍**VBUS**（排针）| 5V |
-| 📍**VBAT**（排针）| 4.2V |
+| 特点              | 详情          |
+| ----------------- | ------------- |
+| 🔗USB-C 输入电压   | 5V            |
+| 🔋电池电压         | 3.7V~4.2V     |
+| 🔋电池连接器型号   | JST 1.25 毫米 |
+| 📍**VBUS**（排针） | 5V            |
+| 📍**VBAT**（排针） | 4.2V          |
 
 * 3V排针负载不超过100mA
-* USB-C 5V 排针电源，负载能力取决于 USB-C 适配器
+* 5V 排针电源来源于USB-C ，负载能力取决于 USB-C 适配器
