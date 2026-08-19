@@ -9,12 +9,7 @@
 #define APP_WIFI_SSID "YOUR_SSID"
 #define APP_WIFI_PASS "YOUR_PASSWORD"
 
-#define APP_LAT  "39.9042"
-#define APP_LONG "116.4074"
-
 #define APP_TZ "CST-8"
-
-#define APP_WEATHER_MIN 10
 
 #define APP_BL_PCT 30
 

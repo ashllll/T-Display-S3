@@ -8,3 +8,8 @@ CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_SPEED_80M=y
 CONFIG_SPIRAM_USE_MALLOC=y
+
+# Keep LVGL's Kconfig defaults compatible with the explicit LV_CONF_PATH build flag
+# in platformio.ini, which selects components/lv_conf.h for this target.
+# CONFIG_LV_CONF_SKIP is not set
+# CONFIG_LV_BUILD_EXAMPLES is not set

@@ -1,6 +1,6 @@
 /**
  * LVGL v9.2.2 配置 — LILYGO T-Display-S3 桌面摆件
- * 170x320 RGB565 横屏；只启用 Label，其余控件全关省 Flash
+ * 170x320 RGB565 横屏；只保留本 UI 使用的 Label/Canvas 等组件
  */
 #ifndef LV_CONF_H
 #define LV_CONF_H
@@ -45,10 +45,10 @@
 /*==================== 字体 ====================*/
 #define LV_FONT_MONTSERRAT_12 0         /* UI uses custom 1bpp SemiBold for crisp small text */
 #define LV_FONT_MONTSERRAT_14 1
-#define LV_FONT_MONTSERRAT_20 1
-#define LV_FONT_MONTSERRAT_28 1
+#define LV_FONT_MONTSERRAT_20 0
+#define LV_FONT_MONTSERRAT_28 0
 #define LV_FONT_MONTSERRAT_36 0         /* UI uses custom 2bpp SemiBold numeric font */
-#define LV_FONT_MONTSERRAT_48 1         /* 横屏大时钟 */
+#define LV_FONT_MONTSERRAT_48 0
 #define LV_FONT_DEFAULT &lv_font_montserrat_14
 
 /*==================== 控件（只留 Label） ====================*/

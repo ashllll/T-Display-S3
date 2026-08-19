@@ -3,8 +3,16 @@
 // - ping 网关 1s 采样：延迟曲线
 // - 60 点环形缓存，供 UI 画实时滚动曲线
 #include "ikuai_monitor.h"
+#if __has_include("ikuai_cert.h")
 #include "ikuai_cert.h"
+#else
+#include "ikuai_cert.example.h"
+#endif
+#if __has_include("config.h")
 #include "config.h"
+#else
+#include "config.example.h"
+#endif
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -33,7 +41,12 @@ static volatile float s_latest_ping_ms = -1;   // ping 回调只存最新值
 
 // ─── HTTP（复用 client，IDF 6.0.1 每次 init/cleanup 泄漏 ~5KB）───
 
-typedef struct { char *buf; int len; int cap; } resp_t;
+typedef struct {
+    char *buf;
+    int len;
+    int cap;
+    bool truncated;
+} resp_t;
 static esp_http_client_handle_t s_client = NULL;
 static resp_t s_resp;
 
@@ -41,18 +54,27 @@ static esp_err_t on_http_evt(esp_http_client_event_t *evt) {
     if (evt->event_id == HTTP_EVENT_ON_DATA) {
         resp_t *r = (resp_t *)evt->user_data;
         int n = evt->data_len;
-        if (r->len + n < r->cap) {
-            memcpy(r->buf + r->len, evt->data, n);
-            r->len += n;
-            r->buf[r->len] = 0;
+        int room = r->cap - r->len - 1;
+        if (room <= 0) {
+            r->truncated = true;
+            return ESP_OK;
         }
+        int copy = n < room ? n : room;
+        memcpy(r->buf + r->len, evt->data, copy);
+        r->len += copy;
+        r->buf[r->len] = 0;
+        if (copy != n) r->truncated = true;
     }
     return ESP_OK;
 }
 
 static bool api_get(const char *path, char *buf, int cap) {
     char url[200];
-    snprintf(url, sizeof(url), "%s%s", API_BASE, path);
+    int url_len = snprintf(url, sizeof(url), "%s%s", API_BASE, path);
+    if (url_len <= 0 || url_len >= (int)sizeof(url)) {
+        ESP_LOGW(TAG, "request URL too long: %s", path);
+        return false;
+    }
     if (!s_client) {
         esp_http_client_config_t cfg = {
             .url = API_BASE "/api/v4.0/monitoring/system",
@@ -71,13 +93,24 @@ static bool api_get(const char *path, char *buf, int cap) {
     s_resp.buf = buf;
     s_resp.len = 0;
     s_resp.cap = cap;
+    s_resp.truncated = false;
     esp_http_client_set_url(s_client, url);
-    char auth[80];
-    snprintf(auth, sizeof(auth), "Bearer %s", IKUAI_TOKEN);
+    char auth[192];
+    int auth_len = snprintf(auth, sizeof(auth), "Bearer %s", IKUAI_TOKEN);
+    if (auth_len <= 0 || auth_len >= (int)sizeof(auth)) {
+        ESP_LOGW(TAG, "Bearer token is too long");
+        return false;
+    }
     esp_http_client_set_header(s_client, "Authorization", auth);
     esp_err_t err = esp_http_client_perform(s_client);
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "http fail %s: %s", path, esp_err_to_name(err));
+        return false;
+    }
+    int status = esp_http_client_get_status_code(s_client);
+    if (status < 200 || status >= 300 || s_resp.truncated) {
+        ESP_LOGW(TAG, "http invalid response %s: status=%d bytes=%d truncated=%d",
+                 path, status, s_resp.len, s_resp.truncated);
         return false;
     }
     return s_resp.len > 0;
@@ -143,7 +176,8 @@ static void parse_system(const char *resp) {
         if (kv_num_range(st, st + 300, "download", &v)) s.down_bps = (uint32_t)v;
         if (kv_num_range(st, st + 300, "upload", &v)) s.up_bps = (uint32_t)v;
     }
-    s.ok = s.down_bps > 0 || s.up_bps > 0 || s.online_cnt > 0;
+    // HTTP 2xx 已经代表本次采样成功；空闲 WAN 的速率和在线数都可能为 0。
+    s.ok = true;
     s.ts = (uint32_t)(esp_timer_get_time() / 1000000);
     if (s.ok) s_last_ok_ts = s.ts;
 
@@ -215,7 +249,7 @@ static void parse_clients(const char *resp) {
     int cnt = 0;
     const char *p = arr;
     while (cnt < 3 && (p = strstr(p, "\"ip_addr\":\"")) != NULL) {
-        p += 12;
+        p += strlen("\"ip_addr\":\"");
         ikuai_client_t *c = &s_extra_client_tmp[cnt];
         int i = 0;
         while (*p && *p != '"' && i < (int)sizeof(c->ip) - 1) c->ip[i++] = *p++;
@@ -280,15 +314,13 @@ static void on_ping_timeout(esp_ping_handle_t hdl, void *args) {
     s_latest_ping_ms = -1;
 }
 
-static void ping_start(void) {
+static bool ping_start(void) {
     ip_addr_t gw;
     esp_netif_ip_info_t ipi;
     esp_netif_t *sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
-    if (sta && esp_netif_get_ip_info(sta, &ipi) == ESP_OK) {
-        ip_addr_copy_from_ip4(gw, ipi.gw);     // 用实际网关
-    } else {
-        IP_ADDR4(&gw, 192, 168, 9, 1);
-    }
+    if (!sta || esp_netif_get_ip_info(sta, &ipi) != ESP_OK ||
+        ipi.ip.addr == 0 || ipi.gw.addr == 0) return false;
+    ip_addr_copy_from_ip4(gw, ipi.gw);     // 用实际网关
     esp_ping_config_t cfg = ESP_PING_DEFAULT_CONFIG();
     cfg.target_addr = gw;
     cfg.count = ESP_PING_COUNT_INFINITE;   // 持续 ping（1s 间隔实时曲线）
@@ -301,7 +333,9 @@ static void ping_start(void) {
     if (esp_ping_new_session(&cfg, &cbs, &s_ping) == ESP_OK) {
         esp_ping_start(s_ping);
         ESP_LOGI(TAG, "ping started (1s interval)");
+        return true;
     }
+    return false;
 }
 
 // ─── 轮询任务 ───────────────────────────────────────────────────────
@@ -310,11 +344,11 @@ static void poll_task(void *arg) {
     enum { BUF_SZ = 8192 };
     char *buf = (char *)malloc(BUF_SZ);
     if (!buf) { vTaskDelete(NULL); return; }
-    ping_start();
     uint32_t next = 0, next_ext = 0;
     int ext_slot = 0;
     for (;;) {
         uint32_t now = (uint32_t)(esp_timer_get_time() / 1000000);
+        if (!s_ping) ping_start();
         if (now >= next) {
             next = now + 1;   // 1s 实时采样
             if (api_get("/api/v4.0/monitoring/system", buf, BUF_SZ))
@@ -362,7 +396,7 @@ bool ikuai_get_sys(ikuai_sys_t *out) {
     xSemaphoreTake(s_mux, portMAX_DELAY);
     *out = s_sys;
     xSemaphoreGive(s_mux);
-    return out->ok;
+    return out->ok && ikuai_recently_ok();
 }
 
 bool ikuai_get_curve(ikuai_curve_t *out) {
@@ -378,7 +412,7 @@ bool ikuai_get_extra(ikuai_extra_t *out) {
     xSemaphoreTake(s_mux, portMAX_DELAY);
     *out = s_extra;
     xSemaphoreGive(s_mux);
-    return out->ok;
+    return out->ok && ikuai_recently_ok();
 }
 
 bool ikuai_recently_ok(void) {

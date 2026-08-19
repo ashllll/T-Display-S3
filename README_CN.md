@@ -47,19 +47,25 @@ cd examples/ikuai_widget
 pio run -e t-display-s3
 ```
 
-首次构建默认使用 `src/config.h` 中的离线演示模式。如果工作区没有本地配置文件：
+项目通过 ESP-IDF Component Manager（`src/idf_component.yml`）固定使用 LVGL 9.2.2，并提交 `dependencies.lock` 保证依赖版本稳定。干净检出后无需私有文件即可直接编译，默认使用仓库内的示例配置运行离线演示模式：
+
+```bash
+pio run -e t-display-s3
+```
+
+如果要连接真实 iKuai，再创建本地配置文件：
 
 ```bash
 cp src/config.example.h src/config.h
 cp src/ikuai_cert.example.h src/ikuai_cert.h
 ```
 
-连接真实 iKuai 时：
+然后：
 
 1. 在 `src/config.h` 中填写 Wi‑Fi、iKuai 地址和 Bearer Token。
 2. 将 `APP_DEMO_MODE` 改为 `0`。
 3. 在 `src/ikuai_cert.h` 中填写路由器 HTTPS CA 证书。
-4. 先完成编译，再明确执行上传命令。
+4. 先完成编译，再明确执行上传命令；两个本地配置文件都不要提交。
 
 真实凭据、证书、串口路径和构建产物不会提交到仓库。
 
@@ -73,10 +79,12 @@ examples/ikuai_widget/
 ├── src/desktop_widget.c       # 8 页监控 UI 与动画
 ├── src/ikuai_monitor.c        # iKuai API、Ping 与数据缓存
 ├── src/fonts/                 # D-DIN LVGL 字体
+├── src/idf_component.yml      # 固定 LVGL 9.2.2 依赖
+├── components/lv_conf.h       # 面向本板的 LVGL 功能裁剪配置
 ├── docs/                      # README 使用的 UI 预览图
 └── platformio.ini             # t-display-s3 构建入口
 ```
 
 ## 验证边界
 
-主机侧可验证配置解析、依赖和固件编译；屏幕方向、背光、按键、Wi‑Fi、iKuai HTTPS 和实际曲线效果仍需在真实 T-Display-S3 上验证。烧录成功本身不等于屏幕和网络功能验收通过。
+当前已用 `pio run -e t-display-s3` 验证主机侧依赖和固件编译；屏幕方向、背光、按键、Wi‑Fi、iKuai HTTPS 和实际曲线效果仍需在真实 T-Display-S3 上验证。烧录成功本身不等于屏幕和网络功能验收通过，仓库也不包含路由器凭据。

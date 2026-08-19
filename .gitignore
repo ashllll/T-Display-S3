@@ -1,5 +1,13 @@
 .vscode
-example/arduino/CST328touch
+
+# T-Display-S3 iKuai widget build and local configuration
+examples/ikuai_widget/.pio/
+examples/ikuai_widget/managed_components/
+examples/ikuai_widget/sdkconfig.*
+!examples/ikuai_widget/sdkconfig.defaults
+examples/ikuai_widget/src/config.h
+examples/ikuai_widget/src/ikuai_cert.h
+
 # Prerequisites
 *.d
 

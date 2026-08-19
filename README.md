@@ -47,19 +47,21 @@ cd examples/ikuai_widget
 pio run -e t-display-s3
 ```
 
-For a clean checkout, create local configuration files:
+The project resolves LVGL 9.2.2 through ESP-IDF Component Manager (`src/idf_component.yml`) and keeps the lock file in `dependencies.lock`. A clean checkout builds in offline demo mode using the tracked example configuration; no private file is required for the first build.
+
+To enable live iKuai monitoring, create local configuration files:
 
 ```bash
 cp src/config.example.h src/config.h
 cp src/ikuai_cert.example.h src/ikuai_cert.h
 ```
 
-For live iKuai monitoring:
+Then:
 
 1. Fill in Wi‑Fi, iKuai host, and Bearer token in `src/config.h`.
 2. Set `APP_DEMO_MODE` to `0`.
 3. Put the router HTTPS CA certificate in `src/ikuai_cert.h`.
-4. Build first, then explicitly run the upload command.
+4. Build first, then explicitly run the upload command. Do not commit either local file.
 
 Real credentials, certificates, serial paths, and build outputs are kept out of version control.
 
@@ -73,10 +75,12 @@ examples/ikuai_widget/
 ├── src/desktop_widget.c       # Eight-page monitoring UI and motion
 ├── src/ikuai_monitor.c        # iKuai API, ping, and data cache
 ├── src/fonts/                 # D-DIN LVGL fonts
+├── src/idf_component.yml      # Pinned LVGL 9.2.2 dependency
+├── components/lv_conf.h       # Target-sized LVGL feature configuration
 ├── docs/                      # UI previews used above
 └── platformio.ini             # t-display-s3 build entry
 ```
 
 ## Validation boundary
 
-Host checks can validate configuration, dependencies, and firmware compilation. Display orientation, backlight, button input, Wi‑Fi, iKuai HTTPS, and real curve behavior still require a physical T-Display-S3. A successful upload alone is not hardware acceptance.
+The host build has been checked with `pio run -e t-display-s3`. Display orientation, backlight, button input, Wi‑Fi, iKuai HTTPS, and real curve behavior still require a physical T-Display-S3. A successful upload alone is not hardware acceptance; this repository does not embed router credentials or claim physical-device validation.

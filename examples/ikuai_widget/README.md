@@ -43,8 +43,7 @@
 
 - **主控**：ESP32-S3R8（Wi-Fi / BLE，16MB Flash，8MB OPI PSRAM）
 - **屏幕**：ST7789，170×320，**8-bit 并口（i80，非 SPI）**
-- **按键**：BOOT（GPIO0）、GPIO14
-- **电池电压检测**：GPIO4（ADC）
+- **按键**：BOOT（GPIO0），单键完成翻页、回主页和息屏/唤醒
 
 ## ⚠ 重点注意事项（移植/烧录前必读）
 
@@ -54,8 +53,7 @@
 4. **外部供电（非 USB-C）时必须禁用 USB CDC**，否则开机等待串口连接、程序不启动：取消 `platformio.ini` 中 `build_flags` 注释即可。
 5. **烧录失败时手动进下载模式**：按住 BOOT → 按一下 RST → 松开 RST → 松开 BOOT，然后重新 upload。
 6. **分辨率**：屏幕按横屏 320×170 适配（底部信息行紧贴下边缘，改布局时注意）。
-7. **电池电压仅在未插 USB-C 时可读**（GPIO4，插上 USB 时读数无效）。
-8. **无板载 WS2812 / TF 卡槽**：本固件不依赖 RGB 状态灯或 TF 卡日志——状态由屏幕左上角状态点 + 文案承担（绿=在线、红=离线）。SD 卡引脚仅在加装 TF Shield 时可用。
+7. **状态不依赖额外外设**：本固件只使用屏幕和 BOOT 键；在线状态由屏幕状态点与文案显示。
 
 ## 功能
 
@@ -63,16 +61,27 @@
 - **iKuai 路由器数据源**：HTTPS + Bearer token + 固定证书，1 秒轮询
 - **离线演示模式**：`APP_DEMO_MODE=1` 时使用模拟数据运行
 
-## 构建
+## 构建 / Build
 
 ```bash
+# 干净检出即可先编译离线演示，不连接 Wi-Fi/iKuai
+pio run -e t-display-s3
+
+# 连接真实 iKuai 时再创建以下本地文件，并填写配置/证书
 cp src/config.example.h src/config.h
 cp src/ikuai_cert.example.h src/ikuai_cert.h
-# 填写 Wi-Fi 与 iKuai 配置后：
-pio run            # 编译
-pio run -t upload  # 烧录
-pio device monitor # 串口监视
+pio run -e t-display-s3       # 编译
+pio run -e t-display-s3 -t upload
+pio device monitor
 ```
+
+LVGL 9.2.2 由 `src/idf_component.yml` 管理，版本锁定在 `dependencies.lock`；`components/lv_conf.h` 是本板的精简配置。`src/config.h`、`src/ikuai_cert.h`、构建目录和生成的 `sdkconfig` 均为本地文件，不要提交。
+
+## Build / English
+
+Run `pio run -e t-display-s3` from a clean checkout to build the offline demo. The demo uses the tracked example configuration and makes no network connection. For live iKuai monitoring, copy both example headers to `src/config.h` and `src/ikuai_cert.h`, fill in Wi‑Fi/router settings and the CA certificate, then set `APP_DEMO_MODE` to `0` before building and uploading.
+
+LVGL 9.2.2 is managed by `src/idf_component.yml` and pinned in `dependencies.lock`. The board-specific trimmed feature set lives in `components/lv_conf.h`. Local credentials, certificates, build output, and generated `sdkconfig` files are intentionally excluded from Git.
 
 ## 目录结构
 

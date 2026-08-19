@@ -1,4 +1,4 @@
 #pragma once
 
-// 桌面信息摆件：Wi-Fi 时钟 + Open-Meteo 天气 + 状态栏 + RGB 灯
+// T-Display-S3 iKuai 路由器监控 UI：8 页信息墙、趋势曲线和按键交互
 void widget_start(void);

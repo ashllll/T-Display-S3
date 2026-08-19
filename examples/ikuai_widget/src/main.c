@@ -8,7 +8,11 @@
 #include "nvs_flash.h"
 #include "lcd_driver.h"
 #include "desktop_widget.h"
+#if __has_include("config.h")
 #include "config.h"
+#else
+#include "config.example.h"
+#endif
 
 static const char *TAG = "main";
 

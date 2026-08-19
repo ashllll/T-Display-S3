@@ -3,7 +3,11 @@
 // 每个刷新帧固定左移 1px，并用临界阻尼连续跟随新采样，避免低速走格与折线突变。
 #include "desktop_widget.h"
 #include "lcd_driver.h"
+#if __has_include("config.h")
 #include "config.h"
+#else
+#include "config.example.h"
+#endif
 #include "lvgl.h"
 #include "lv_port_disp.h"
 #include "ikuai_monitor.h"
@@ -28,6 +32,9 @@ LV_FONT_DECLARE(ui_font_ddin_italic_36);
 
 #ifndef APP_DEMO_MODE
 #define APP_DEMO_MODE 0
+#endif
+#ifndef APP_TZ
+#define APP_TZ "CST-8"
 #endif
 #ifndef APP_NIGHT_START
 #define APP_NIGHT_START 23
@@ -83,7 +90,7 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
         xEventGroupSetBits(s_eg, BIT_IP);
         ESP_LOGI(TAG, "got ip %s", s_ip);
         if (!esp_sntp_enabled()) {          // 网络授时,用于夜间自动降背光
-            setenv("TZ", "CST-8", 1);       // 北京时间 UTC+8
+            setenv("TZ", APP_TZ, 1);
             tzset();
             esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
             esp_sntp_setservername(0, "ntp.aliyun.com");
@@ -116,6 +123,7 @@ static lv_obj_t *canvas_curve;
 LV_DRAW_BUF_DEFINE_STATIC(cvs_curve, CURVE_W, CURVE_H, LV_COLOR_FORMAT_RGB565);
 static lv_obj_t *canvas_curve2;
 LV_DRAW_BUF_DEFINE_STATIC(cvs_curve2, CURVE2_W, CURVE2_H, LV_COLOR_FORMAT_RGB565);
+static void meteor_step(void);
 
 typedef struct {
     float cur;
@@ -823,13 +831,14 @@ static void pages_update(void) {
     has_ex = ikuai_get_extra(&ex);
 #endif
     // 健康页:CPU/MEM 用 1s 实时数据;温度/运行时间用扩展数据
-    if (ikuai_get_sys(&(ikuai_sys_t){0})) {
+    {
         ikuai_sys_t sy;
-        ikuai_get_sys(&sy);
-        snprintf(line, sizeof(line), "%.0f", (double)sy.cpu_pct);
-        lv_label_set_text(lbl_cpu, line);
-        snprintf(line, sizeof(line), "%.0f", (double)sy.mem_pct);
-        lv_label_set_text(lbl_mem, line);
+        if (ikuai_get_sys(&sy)) {
+            snprintf(line, sizeof(line), "%.0f", (double)sy.cpu_pct);
+            lv_label_set_text(lbl_cpu, line);
+            snprintf(line, sizeof(line), "%.0f", (double)sy.mem_pct);
+            lv_label_set_text(lbl_mem, line);
+        }
     }
     if (has_ex) {
         snprintf(line, sizeof(line), "%.0f C", (double)ex.cpu_temp);
@@ -864,6 +873,21 @@ static void pages_update(void) {
         lv_label_set_text(lbl_ap, line);
         snprintf(line, sizeof(line), "%d / %d", ex.clt_2g, ex.clt_5g);
         lv_label_set_text(lbl_clt, line);
+    } else {
+        lv_label_set_text(lbl_temp, "--");
+        lv_label_set_text(lbl_uptime, "--");
+        for (int i = 0; i < 2; i++) {
+            lv_label_set_text(lbl_wan[i][1], "--");
+            lv_label_set_text(lbl_wan[i][2], "--");
+            lv_obj_set_style_bg_color(lbl_wan_dot[i], lv_color_hex(CLR_RED), 0);
+        }
+        for (int i = 0; i < 3; i++) {
+            lv_label_set_text(lbl_cli[i][0], "--");
+            lv_label_set_text(lbl_cli[i][1], "--");
+        }
+        lv_label_set_text(lbl_ac, "--");
+        lv_label_set_text(lbl_ap, "--");
+        lv_label_set_text(lbl_clt, "--");
     }
 }
 

@@ -7,7 +7,7 @@
 #ifdef LV_LVGL_H_INCLUDE_SIMPLE
 #include "lvgl.h"
 #else
-#include "lvgl/lvgl.h"
+#include "lvgl.h"
 #endif
 
 #ifndef UI_FONT_DDIN_ITALIC_36
@@ -326,4 +326,3 @@ lv_font_t ui_font_ddin_italic_36 = {
 
 
 #endif /*#if UI_FONT_DDIN_ITALIC_36*/
-
