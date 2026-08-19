@@ -1,4 +1,4 @@
-# T-Display-S3 iKuai 小屏监控
+# T-Display-S3 iKuai 网络监控屏
 
 这是一个面向 LILYGO T-Display-S3 的独立小屏监控项目：通过 Wi‑Fi 读取 iKuai 路由器数据，在板载 ST7789 屏幕上显示 WAN 状态、Ping、上下行速率、客户端和无线状态。
 

@@ -1,4 +1,4 @@
-# T-Display-S3 桌面信息摆件
+# T-Display-S3 iKuai 网络监控屏 / iKuai Network Monitor
 
 面向 T-Display-S3（非触摸版）的桌面监控摆件固件：LVGL 界面实时显示 iKuai 路由器 WAN 状态、上下行速率与滚动趋势曲线。UI 采用酷态科（CUKTECH）小屏设计语言：纯黑底 + D-DIN Italic 大数字 + 彩色胶囊标签 + 无网格渐变曲线。
 

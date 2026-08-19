@@ -1,4 +1,4 @@
-# T-Display-S3 iKuai Monitor
+# T-Display-S3 iKuai Network Monitor
 
 This repository contains a focused iKuai router monitor for the LILYGO T-Display-S3. It reads router telemetry over Wi‑Fi and presents WAN status, ping, download/upload rates, clients, and wireless status on the onboard ST7789 display.
 
