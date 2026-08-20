@@ -466,7 +466,7 @@ static lv_obj_t *lbl_wan[2][3];   // [i][0=状态 1=IP 2=网关]
 static lv_obj_t *lbl_wan_dot[2];
 static lv_obj_t *lbl_cli[3][2];   // [i][0=名称 1=速率]
 static lv_obj_t *lbl_top_count, *lbl_top_total;
-static lv_obj_t *lbl_ac, *lbl_ap, *lbl_clt;
+static lv_obj_t *lbl_ac, *lbl_ap, *lbl_clt_2g, *lbl_clt_5g;
 
 static void page_translate_x(void *var, int32_t value) {
     lv_obj_set_style_translate_x((lv_obj_t *)var, value, 0);
@@ -649,10 +649,8 @@ static void build_page_sys(lv_obj_t *pg) {
     sys_row(pg, 60, "DEVICE UP", CLR_YELLOW, &lbl_sys_uptime);
     sys_row(pg, 86, "HEAP",    CLR_PING,   &lbl_sys_heap);
     mk_block(pg, 12, 112, 296, 1, CLR_BORDER);
-    lv_obj_t *hint = mk_label(pg, 12, 120, &ui_font_ddin_12, CLR_DIM);
-    lv_label_set_text(hint, "CLICK NEXT · 2X HOME");
-    lv_obj_t *hint2 = mk_label(pg, 12, 136, &ui_font_ddin_12, CLR_DIM);
-    lv_label_set_text(hint2, "HOLD SLEEP / WAKE");
+    lv_obj_t *hint = mk_label(pg, 12, 132, &ui_font_ddin_12, CLR_DIM);
+    lv_label_set_text(hint, "BOOT: NEXT · 2X HOME · HOLD SLEEP");
 }
 
 
@@ -748,15 +746,20 @@ static void build_page_ac(lv_obj_t *pg) {
     lbl_ac = mk_label(pg, 0, 14, &ui_font_ddin_12, CLR_TEXT);
     lv_obj_align(lbl_ac, LV_ALIGN_TOP_RIGHT, -12, 14);
     lv_label_set_text(lbl_ac, "--");
-    mk_block(pg, 12, 40, 296, 1, CLR_BORDER);
-    mk_pill(pg, 12, 52, "AP ONLINE", CLR_DOWN, 0x000000);
-    lbl_ap = mk_label(pg, 0, 54, &ui_font_ddin_12, CLR_TEXT);
-    lv_obj_align(lbl_ap, LV_ALIGN_TOP_RIGHT, -12, 54);
+    mk_block(pg, 12, 30, 296, 1, CLR_BORDER);
+    mk_pill(pg, 12, 42, "AP ONLINE", CLR_DOWN, 0x000000);
+    lbl_ap = mk_label(pg, 0, 44, &ui_font_ddin_12, CLR_TEXT);
+    lv_obj_align(lbl_ap, LV_ALIGN_TOP_RIGHT, -12, 44);
     lv_label_set_text(lbl_ap, "--");
-    mk_pill(pg, 12, 82, "2.4G", CLR_YELLOW, 0x000000);
-    mk_pill(pg, 172, 82, "5G", CLR_PING, 0x000000);
-    lbl_clt = mk_label(pg, 12, 100, &ui_font_ddin_italic_36, CLR_TEXT);
-    lv_label_set_text(lbl_clt, "- / -");
+    mk_pill(pg, 12, 72, "2.4G", CLR_YELLOW, 0x000000);
+    mk_pill(pg, 188, 72, "5G", CLR_PING, 0x000000);
+    lbl_clt_2g = mk_label(pg, 12, 90, &ui_font_ddin_italic_36, CLR_TEXT);
+    lbl_clt_5g = mk_label(pg, 188, 90, &ui_font_ddin_italic_36, CLR_TEXT);
+    lv_label_set_text(lbl_clt_2g, "--");
+    lv_label_set_text(lbl_clt_5g, "--");
+    mk_block(pg, 12, 140, 296, 1, CLR_BORDER);
+    lv_obj_t *radio_hint = mk_label(pg, 12, 148, &ui_font_ddin_12, CLR_DIM);
+    lv_label_set_text(radio_hint, "CLIENTS BY RADIO");
 }
 
 
@@ -1148,8 +1151,10 @@ static void pages_update(void) {
         lv_label_set_text(lbl_ac, ex.ac_on ? "ON" : "OFF");
         snprintf(line, sizeof(line), "%d / %d", ex.ap_online, ex.ap_count);
         lv_label_set_text(lbl_ap, line);
-        snprintf(line, sizeof(line), "%d / %d", ex.clt_2g, ex.clt_5g);
-        lv_label_set_text(lbl_clt, line);
+        snprintf(line, sizeof(line), "%02d", ex.clt_2g);
+        lv_label_set_text(lbl_clt_2g, line);
+        snprintf(line, sizeof(line), "%02d", ex.clt_5g);
+        lv_label_set_text(lbl_clt_5g, line);
     } else {
         lv_label_set_text(lbl_temp, "--");
         lv_label_set_text(lbl_uptime, "--");
@@ -1170,7 +1175,8 @@ static void pages_update(void) {
         }
         lv_label_set_text(lbl_ac, "--");
         lv_label_set_text(lbl_ap, "--");
-        lv_label_set_text(lbl_clt, "--");
+        lv_label_set_text(lbl_clt_2g, "--");
+        lv_label_set_text(lbl_clt_5g, "--");
     }
 }
 

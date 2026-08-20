@@ -6,7 +6,7 @@
 
 ## 十页设计与显示目标
 
-![CUKTECH 十页界面设计稿](../../designs/cuktech-ui-concepts/cuktech-ui-10-versions.png)
+![CUKTECH 十页界面设计稿 v2](../../designs/cuktech-ui-concepts/cuktech-ui-10-versions-v2.svg)
 
 设计稿中的视觉方向已整理成一套连续页面，而不是十套互相冲突的主题：高频总览、下行焦点、双通道、趋势和网络健康位于前五页；设备与路由管理信息位于后五页。
 
