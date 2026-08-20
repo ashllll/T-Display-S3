@@ -4,6 +4,12 @@
 
 本目录是 T-Display-S3 的独立监控固件入口，面向板载 ST7789 屏幕和 GPIO0 BOOT 按键。
 
+## 最新 UI 更新 / Latest UI update
+
+CPU/MEM 百分比现在会在数值从 `--`、个位数变化到三位数时重新锚定 `%` 单位，避免单位漂移、重叠或与数字脱节。速率单位也按当前值宽度重新对齐；本版同时保留大号原生数字和单一焦点排版，优先保证真实小屏可读性。
+
+When CPU or memory values change width—from `--` to one, two, or three digits—the `%` suffix is re-anchored after each update. This prevents drift and overlap on the physical 320×170 display. Rate units use the same width-aware alignment, while the large native-number layout remains the readability baseline.
+
 ## 十页设计与显示目标
 
 ![CUKTECH 十页界面设计稿 v2](../../designs/cuktech-ui-concepts/cuktech-ui-10-versions-v2.svg)
@@ -39,7 +45,7 @@
 - **焦点页峰值标记**：会话峰值以 `PEAK x.x MB/s *` 黄字常驻（模式 C 规格）
 - **翻页方向感动画**：向前翻从右滑入，回翻从左滑入
 - **焦点页流星汇入**：仅在流量明显变化时短暂出现 6 颗青/蓝流星，避免持续粒子遮挡主数字；设置 `APP_REDUCED_MOTION=1` 可关闭页面滑动和流星动效
-- **夜间静音模式**：SNTP 授时（ntp.aliyun.com，CST-8）后，23:00–07:00 背光自动降到 `APP_BL_NIGHT_PCT`（默认 8%），曲线从 30 FPS 降为 15 FPS，并关闭流星和翻页动效；时段可在 `config.h` 改，手动息屏优先，时间未同步时不动作
+- **夜间静音模式**：SNTP 授时（ntp.aliyun.com，CST-8）后，23:00–07:00 背光自动降到 `APP_BL_NIGHT_PCT`（默认 8%），曲线保持 15 FPS，并关闭流星和翻页动效；时段可在 `config.h` 改，手动息屏优先，时间未同步时不动作
 
 ## 硬件
 
@@ -59,7 +65,7 @@
 
 ## 功能
 
-- **LVGL 监控面板**（横屏 320×170，背光上限 40%）：WAN 在线状态、在线设备数、网关 PING（橙色描边胶囊）、下行/上行实时速率大数字（主页 D-DIN Italic、焦点页原生 48px，青/蓝胶囊标签）、约 10 秒三色滚动趋势曲线（30fps，临界阻尼平滑）
+- **LVGL 监控面板**（横屏 320×170，背光默认上限 30%，可在配置中调整）：WAN 在线状态、在线设备数、网关 PING（橙色描边胶囊）、下行/上行实时速率大数字（主页 D-DIN Italic、焦点页原生 48px，青/蓝胶囊标签）、约 10 秒三色滚动趋势曲线（15 FPS，临界阻尼平滑）
 - **iKuai 路由器数据源**：HTTPS + Bearer token + 固定证书，1 秒轮询
 - **离线演示模式**：`APP_DEMO_MODE=1` 时使用模拟数据运行
 
@@ -77,7 +83,7 @@ pio run -e t-display-s3 -t upload
 pio device monitor
 ```
 
-`APP_REDUCED_MOTION=1` 可关闭页面滑动和流星动效，保留曲线滚动，适合对动效敏感或需要更安静显示的场景。
+`APP_REDUCED_MOTION=1` 可关闭页面滑动和流星动效，保留曲线滚动，适合对动效敏感或需要更安静显示的场景。最新实机验证记录见仓库根目录 [`CHANGELOG.md`](../../CHANGELOG.md)。
 
 LVGL 9.2.2 由 `src/idf_component.yml` 管理，版本锁定在 `dependencies.lock`；`components/lv_conf.h` 是本板的精简配置。`src/config.h`、`src/ikuai_cert.h`、构建目录和生成的 `sdkconfig` 均为本地文件，不要提交。
 
@@ -86,6 +92,8 @@ LVGL 9.2.2 由 `src/idf_component.yml` 管理，版本锁定在 `dependencies.lo
 Run `pio run -e t-display-s3` from a clean checkout to build the offline demo. The demo uses the tracked example configuration and makes no network connection. The CUKTECH-inspired interface contains ten single-purpose pages: overview, download focus, dual traffic lanes, trend, network health, device status, router health, WAN details, top clients, and wireless AC. For live iKuai monitoring, copy both example headers to `src/config.h` and `src/ikuai_cert.h`, fill in Wi‑Fi/router settings and the CA certificate, then set `APP_DEMO_MODE` to `0` before building and uploading. Set `APP_REDUCED_MOTION` to `1` for a calmer display mode; the scheduled night mode also lowers the curve rate to 15 FPS and suppresses decorative motion.
 
 LVGL 9.2.2 is managed by `src/idf_component.yml` and pinned in `dependencies.lock`. The board-specific trimmed feature set lives in `components/lv_conf.h`. Local credentials, certificates, build output, and generated `sdkconfig` files are intentionally excluded from Git.
+
+The current firmware has been built, flashed to a physical T-Display-S3, and exercised against a live iKuai HTTPS endpoint. The serial run confirmed PSRAM, Wi‑Fi association, and a successful API response; visual acceptance of every page remains a direct-screen check.
 
 ## 目录结构
 

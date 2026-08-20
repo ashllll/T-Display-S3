@@ -6,11 +6,15 @@
 
 ## UI 预览
 
+固件实际包含十个“一屏一焦点”页面。下面的 SVG 展示主页和第 1–8 页代表界面；完整十页设计总览单独保留，便于在 GitHub 中查看。
+
 ![主界面与核心监控页](examples/ikuai_widget/docs/ui-preview.svg)
 
 ![页面 1–4](examples/ikuai_widget/docs/ui-pages-preview.svg)
 
 ![页面 5–8](examples/ikuai_widget/docs/ui-pages2-preview.svg)
+
+![完整十页 UI 设计总览](designs/cuktech-ui-concepts/cuktech-ui-10-versions-v2.svg)
 
 ## 功能概览
 
@@ -18,12 +22,14 @@
 | --- | --- | --- |
 | 1 | WAN 状态、Ping、上下行速率、三色趋势曲线 | `monitoring/system`，1 秒 |
 | 2 | 下行速率焦点页、上行副行、会话峰值 | `monitoring/system` |
-| 3 | 全屏滚动趋势曲线与 Ping | `monitoring/system` + ICMP |
-| 4 | 本机 IP、客户端数、运行时间、堆内存 | 本机状态 |
-| 5 | 路由器 CPU、内存、温度、运行时间、版本 | `monitoring/system` |
-| 6 | 双 WAN 公网 IP、网关和在线状态 | `monitoring/interfaces-status`，3 秒轮询 |
-| 7 | 下载流量 Top 3 客户端 | `monitoring/clients-online`，3 秒轮询 |
-| 8 | AC、AP、2.4G/5G 终端状态 | AC 和无线统计接口，3 秒轮询 |
+| 3 | 上下行双通道与独立微型趋势曲线 | `monitoring/system` |
+| 4 | 全屏滚动趋势曲线与 Ping | `monitoring/system` + ICMP |
+| 5 | 网络健康结论、证据和告警建议 | `monitoring/system` + 本地 Wi-Fi |
+| 6 | 本机 IP、客户端数、运行时间、堆内存 | 本地状态 |
+| 7 | 路由器 CPU、内存、温度、运行时间、版本 | `monitoring/system` |
+| 8 | 双 WAN 公网 IP、网关和在线状态 | `monitoring/interfaces-status`，3 秒轮询 |
+| 9 | 下载流量 Top 3、在线数和上下行摘要 | `monitoring/clients-online`，3 秒轮询 |
+| 10 | 无线 AC 状态、AP 数量、2.4G/5G 终端数 | AC 和无线统计接口，3 秒轮询 |
 
 扩展接口采用轮转请求，每 3 秒只请求一组数据，减少对路由器的压力。
 
@@ -76,7 +82,7 @@ examples/ikuai_widget/
 ├── src/main.c                 # 应用入口
 ├── src/lcd_driver.c           # T-Display-S3 ST7789 i80 驱动
 ├── src/lv_port_disp.c         # LVGL 显示适配
-├── src/desktop_widget.c       # 8 页监控 UI 与动画
+├── src/desktop_widget.c       # 10 页监控 UI 与动画
 ├── src/ikuai_monitor.c        # iKuai API、Ping 与数据缓存
 ├── src/fonts/                 # D-DIN LVGL 字体
 ├── src/idf_component.yml      # 固定 LVGL 9.2.2 依赖
@@ -87,4 +93,8 @@ examples/ikuai_widget/
 
 ## 验证边界
 
-当前已用 `pio run -e t-display-s3` 验证主机侧依赖和固件编译；屏幕方向、背光、按键、Wi‑Fi、iKuai HTTPS 和实际曲线效果仍需在真实 T-Display-S3 上验证。烧录成功本身不等于屏幕和网络功能验收通过，仓库也不包含路由器凭据。
+当前 `t-display-s3` 固件已完成编译、真实板烧录，并接入真实 iKuai 链路运行。串口证据包括 8MB PSRAM 测试通过、LVGL UI 任务在 Core 1 启动、Wi‑Fi 成功关联，以及 iKuai HTTPS API 返回成功；监控期间未观察到重启或 UI 任务崩溃。
+
+本次实机检查重点覆盖上电、实时数据、翻页，以及 CPU/MEM 数字变化时 `%` 单位的自适应对齐。每个页面的最终视觉验收仍需要直接观察屏幕；编译、串口和 API 成功不能替代屏幕视觉验收。路由器凭据和证书仍只保留在本地，不会进入仓库。
+
+当前 UI 与硬件验证记录见 [`CHANGELOG.md`](CHANGELOG.md)。

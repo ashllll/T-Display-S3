@@ -38,6 +38,12 @@ static ikuai_client_t s_extra_client_tmp[3];
 static ikuai_curve_t  s_curve;
 static volatile uint32_t s_last_ok_ts = 0;
 static volatile float s_latest_ping_ms = -1;   // ping 回调只存最新值
+static uint64_t s_prev_total_down;
+static uint64_t s_prev_total_up;
+static uint64_t s_prev_down_us;
+static uint64_t s_prev_up_us;
+static bool s_prev_down_valid;
+static bool s_prev_up_valid;
 
 // ─── HTTP（复用 client，IDF 6.0.1 每次 init/cleanup 泄漏 ~5KB）───
 
@@ -49,6 +55,7 @@ typedef struct {
 } resp_t;
 static esp_http_client_handle_t s_client = NULL;
 static resp_t s_resp;
+static bool s_logged_api_ok;
 
 static esp_err_t on_http_evt(esp_http_client_event_t *evt) {
     if (evt->event_id == HTTP_EVENT_ON_DATA) {
@@ -113,6 +120,10 @@ static bool api_get(const char *path, char *buf, int cap) {
                  path, status, s_resp.len, s_resp.truncated);
         return false;
     }
+    if (!s_logged_api_ok) {
+        s_logged_api_ok = true;
+        ESP_LOGI(TAG, "api online: status=%d bytes=%d", status, s_resp.len);
+    }
     return s_resp.len > 0;
 }
 
@@ -144,6 +155,23 @@ static bool kv_num_range(const char *start, const char *end, const char *key, do
     return true;
 }
 
+static uint32_t rate_from_counter(uint64_t total, uint64_t now_us,
+                                  uint64_t *prev_total, uint64_t *prev_us,
+                                  bool *valid, uint32_t fallback) {
+    uint32_t result = fallback;
+    if (*valid && total >= *prev_total && now_us > *prev_us) {
+        uint64_t delta = total - *prev_total;
+        uint64_t elapsed_us = now_us - *prev_us;
+        uint64_t bytes_per_sec = (delta / elapsed_us) * 1000000ULL;
+        bytes_per_sec += ((delta % elapsed_us) * 1000000ULL) / elapsed_us;
+        result = bytes_per_sec > UINT32_MAX ? UINT32_MAX : (uint32_t)bytes_per_sec;
+    }
+    *prev_total = total;
+    *prev_us = now_us;
+    *valid = true;
+    return result;
+}
+
 static bool kv_str_range(const char *start, const char *end, const char *key,
                          char *out, int cap) {
     char pat[32];
@@ -162,6 +190,10 @@ static void parse_system(const char *resp) {
     ikuai_sys_t s = { 0 };
     char tmp[16];
     double v;
+    bool has_total_down = false;
+    bool has_total_up = false;
+    uint64_t total_down = 0;
+    uint64_t total_up = 0;
     if (array_first_str(resp, "cpu", tmp, sizeof(tmp))) s.cpu_pct = (float)atof(tmp);
     const char *mem = strstr(resp, "\"memory\":{");
     if (mem) {
@@ -173,12 +205,30 @@ static void parse_system(const char *resp) {
     const char *st = strstr(resp, "\"stream\":{");
     if (st) {
         if (kv_num_range(st, st + 300, "connect_num", &v)) s.conn_cnt = (uint32_t)v;
-        if (kv_num_range(st, st + 300, "download", &v)) s.down_bps = (uint32_t)v;
-        if (kv_num_range(st, st + 300, "upload", &v)) s.up_bps = (uint32_t)v;
+        // iKuai 的瞬时字段在不同版本中曾以 KB/s 返回；累计字段是稳定的字节计数。
+        // 优先用累计计数差分，避免把 API 的展示单位误当成 B/s 或 bit/s。
+        if (kv_num_range(st, st + 300, "download", &v))
+            s.down_bps = v > 0 ? (uint32_t)(v * 1024.0) : 0;
+        if (kv_num_range(st, st + 300, "upload", &v))
+            s.up_bps = v > 0 ? (uint32_t)(v * 1024.0) : 0;
+        if (kv_num_range(st, st + 300, "total_down", &v) && v >= 0)
+            total_down = (uint64_t)v, has_total_down = true;
+        if (kv_num_range(st, st + 300, "total_up", &v) && v >= 0)
+            total_up = (uint64_t)v, has_total_up = true;
     }
     // HTTP 2xx 已经代表本次采样成功；空闲 WAN 的速率和在线数都可能为 0。
     s.ok = true;
-    s.ts = (uint32_t)(esp_timer_get_time() / 1000000);
+    uint64_t now_us = (uint64_t)esp_timer_get_time();
+    if (has_total_down && has_total_up) {
+        s.down_bps = rate_from_counter(total_down, now_us, &s_prev_total_down,
+                                        &s_prev_down_us, &s_prev_down_valid, s.down_bps);
+        s.up_bps = rate_from_counter(total_up, now_us, &s_prev_total_up,
+                                      &s_prev_up_us, &s_prev_up_valid, s.up_bps);
+    } else {
+        s_prev_down_valid = false;
+        s_prev_up_valid = false;
+    }
+    s.ts = (uint32_t)(now_us / 1000000);
     if (s.ok) s_last_ok_ts = s.ts;
 
     xSemaphoreTake(s_mux, portMAX_DELAY);

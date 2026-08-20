@@ -6,11 +6,15 @@ The UI is designed as a compact information wall: black background, restrained s
 
 ## UI preview
 
+The firmware contains ten single-purpose pages. The SVG previews below show the main screen and representative pages 1–8; the complete ten-page design overview is included separately so the README stays readable on GitHub.
+
 ![Main screen and core monitoring pages](examples/ikuai_widget/docs/ui-preview.svg)
 
 ![Pages 1–4](examples/ikuai_widget/docs/ui-pages-preview.svg)
 
 ![Pages 5–8](examples/ikuai_widget/docs/ui-pages2-preview.svg)
+
+![Complete ten-page UI design overview](designs/cuktech-ui-concepts/cuktech-ui-10-versions-v2.svg)
 
 ## Features
 
@@ -18,12 +22,14 @@ The UI is designed as a compact information wall: black background, restrained s
 | --- | --- | --- |
 | 1 | WAN state, ping, download/upload rates, three-track trend | `monitoring/system`, 1 s |
 | 2 | Throughput focus view, upload secondary row, session peak | `monitoring/system` |
-| 3 | Full-screen rolling trend and ping | `monitoring/system` + ICMP |
-| 4 | Local IP, clients, uptime, and heap | Local state |
-| 5 | Router CPU, memory, temperature, uptime, and firmware | `monitoring/system` |
-| 6 | Dual-WAN public IP, gateway, and link state | `monitoring/interfaces-status`, every 3 s |
-| 7 | Top three clients by download rate | `monitoring/clients-online`, every 3 s |
-| 8 | AC, AP, and 2.4 GHz/5 GHz client status | AC and wireless endpoints, every 3 s |
+| 3 | Dual traffic lanes with independent mini-trends | `monitoring/system` |
+| 4 | Full-screen rolling trend and ping | `monitoring/system` + ICMP |
+| 5 | Network health conclusion, evidence, and alert guidance | `monitoring/system` + local Wi-Fi |
+| 6 | Local IP, clients, uptime, and heap | Local state |
+| 7 | Router CPU, memory, temperature, uptime, and firmware | `monitoring/system` |
+| 8 | Dual-WAN public IP, gateway, and link state | `monitoring/interfaces-status`, every 3 s |
+| 9 | Top three clients by download rate, online count, and traffic summary | `monitoring/clients-online`, every 3 s |
+| 10 | Wireless AC state, AP count, and 2.4 GHz/5 GHz client counts | AC and wireless endpoints, every 3 s |
 
 Extended endpoints rotate one request every three seconds to keep router load low.
 
@@ -72,7 +78,7 @@ examples/ikuai_widget/
 ├── src/main.c                 # Application entry point
 ├── src/lcd_driver.c           # T-Display-S3 ST7789 i80 driver
 ├── src/lv_port_disp.c         # LVGL display port
-├── src/desktop_widget.c       # Eight-page monitoring UI and motion
+├── src/desktop_widget.c       # Ten-page monitoring UI and motion
 ├── src/ikuai_monitor.c        # iKuai API, ping, and data cache
 ├── src/fonts/                 # D-DIN LVGL fonts
 ├── src/idf_component.yml      # Pinned LVGL 9.2.2 dependency
@@ -83,4 +89,8 @@ examples/ikuai_widget/
 
 ## Validation boundary
 
-The host build has been checked with `pio run -e t-display-s3`. Display orientation, backlight, button input, Wi‑Fi, iKuai HTTPS, and real curve behavior still require a physical T-Display-S3. A successful upload alone is not hardware acceptance; this repository does not embed router credentials or claim physical-device validation.
+The `t-display-s3` firmware has been built, flashed to a physical board, and exercised on the real iKuai link. Serial evidence includes the 8 MB PSRAM memory test, the LVGL UI task starting on core 1, Wi‑Fi association, and a successful iKuai HTTPS API response. No reboot or UI task crash was observed during the monitored run.
+
+The latest physical check specifically covers startup, live data, page switching, and the adaptive CPU/MEM `%` suffix alignment. Final visual acceptance of every page still depends on the display angle and a direct screen check; build, serial, and API success are not substitutes for that visual check. Private router credentials and certificates remain local and are not part of this repository.
+
+See [`CHANGELOG.md`](CHANGELOG.md) for the current UI and hardware-validation record.

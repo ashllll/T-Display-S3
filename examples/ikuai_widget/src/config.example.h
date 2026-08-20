@@ -7,7 +7,7 @@
 #define APP_DEMO_MODE 1
 
 // 1 = 减少页面滑动和流星动效，保留曲线滚动；0 = 标准动效
-#define APP_REDUCED_MOTION 0
+#define APP_REDUCED_MOTION 1
 
 #define APP_WIFI_SSID "YOUR_SSID"
 #define APP_WIFI_PASS "YOUR_PASSWORD"

@@ -27,7 +27,7 @@ void app_main(void) {
     ESP_ERROR_CHECK(err);
 
     lcd_init();
-    lcd_set_backlight(APP_BL_PCT);          // 上限 40%（lcd_driver 内再 clamp）
+    lcd_set_backlight(APP_BL_PCT);
 
     widget_start();
 

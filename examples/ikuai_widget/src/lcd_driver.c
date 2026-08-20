@@ -10,10 +10,10 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/gpio.h"
-#include "driver/ledc.h"
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_vendor.h"
+#include "esp_rom_sys.h"
 #include "esp_log.h"
 
 static const char *TAG = "lcd";
@@ -24,44 +24,101 @@ static const char *TAG = "lcd";
 #define PIN_CS    6
 #define PIN_DC    7
 #define PIN_WR    8
-// RD=GPIO9 不接（只写）
+#define PIN_RD    9
 static const int s_data_pins[8] = { 39, 40, 41, 42, 45, 46, 47, 48 };
 
-#define PCLK_HZ     (20 * 1000 * 1000)
-#define BL_MAX_PCT  40    // 背光硬上限 40%，避免小屏长时间高亮
+#define PCLK_HZ     (16 * 1000 * 1000)
+#define BL_MAX_PCT  40    // 背光控制范围；应用默认值仍由 config.h 限制
 
-// 170x320 面板在 240x320 GRAM 中的列偏移（竖屏坐标系，swap_xy 之前）
-#define X_GAP 35
-#define Y_GAP 0
+// 官方 T-Display-S3 工厂程序使用竖屏 GRAM 偏移 (0, 35)，
+// 再通过 swap_xy 转为横屏 320x170。
+#define X_GAP 0
+#define Y_GAP 35
 
 static esp_lcd_panel_handle_t s_panel;
+static lcd_flush_done_cb_t s_flush_done_cb;
+static void *s_flush_done_ctx;
 
-// ─── Backlight (LEDC PWM) ────────────────────────────────────────────
+typedef struct {
+    uint8_t cmd;
+    uint8_t data[14];
+    uint8_t len;
+} st7789_cmd_t;
+
+// T-Display-S3 新版屏幕需要这组 ST7789V 扩展参数才能正常出图。
+// 该序列与 LilyGO 官方 factory 程序保持一致。
+static const st7789_cmd_t s_st7789_init[] = {
+    {0x11, {0}, 0x80},
+    {0x3A, {0x05}, 1},
+    {0xB2, {0x0B, 0x0B, 0x00, 0x33, 0x33}, 5},
+    {0xB7, {0x75}, 1},
+    {0xBB, {0x28}, 1},
+    {0xC0, {0x2C}, 1},
+    {0xC2, {0x01}, 1},
+    {0xC3, {0x1F}, 1},
+    {0xC6, {0x13}, 1},
+    {0xD0, {0xA7}, 1},
+    {0xD0, {0xA4, 0xA1}, 2},
+    {0xD6, {0xA1}, 1},
+    {0xE0, {0xF0, 0x05, 0x0A, 0x06, 0x06, 0x03, 0x2B,
+            0x32, 0x43, 0x36, 0x11, 0x10, 0x2B, 0x32}, 14},
+    {0xE1, {0xF0, 0x08, 0x0C, 0x0B, 0x09, 0x24, 0x2B,
+            0x22, 0x43, 0x38, 0x15, 0x16, 0x2F, 0x37}, 14},
+};
+
+static bool lcd_color_trans_done(esp_lcd_panel_io_handle_t io,
+                                 esp_lcd_panel_io_event_data_t *edata,
+                                 void *user_ctx) {
+    (void)io;
+    (void)edata;
+    (void)user_ctx;
+    if (s_flush_done_cb) s_flush_done_cb(s_flush_done_ctx);
+    return false;
+}
+
+void lcd_set_flush_done_cb(lcd_flush_done_cb_t cb, void *ctx) {
+    s_flush_done_cb = cb;
+    s_flush_done_ctx = ctx;
+}
+
+// ─── Backlight (GPIO38 脉冲式 16 级背光芯片) ─────────────────────────
+
+static uint8_t s_bl_level;
 
 static void bl_init(void) {
-    ledc_timer_config_t tmr = {
-        .speed_mode = LEDC_LOW_SPEED_MODE,
-        .duty_resolution = LEDC_TIMER_10_BIT,
-        .timer_num = LEDC_TIMER_0,
-        .freq_hz = 5000,
-        .clk_cfg = LEDC_AUTO_CLK,
+    gpio_config_t cfg = {
+        .pin_bit_mask = 1ULL << PIN_BL,
+        .mode = GPIO_MODE_OUTPUT,
     };
-    ledc_timer_config(&tmr);
-
-    ledc_channel_config_t ch = {
-        .speed_mode = LEDC_LOW_SPEED_MODE,
-        .channel = LEDC_CHANNEL_0,
-        .timer_sel = LEDC_TIMER_0,
-        .gpio_num = PIN_BL,
-        .duty = 0,
-    };
-    ledc_channel_config(&ch);
+    ESP_ERROR_CHECK(gpio_config(&cfg));
+    gpio_set_level(PIN_BL, 0);
+    s_bl_level = 0;
 }
 
 void lcd_set_backlight(uint8_t pct) {
     if (pct > BL_MAX_PCT) pct = BL_MAX_PCT;
-    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, (uint32_t)pct * 1023 / 100);
-    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
+
+    // GPIO38 is connected to the board's 16-step backlight controller. The
+    // first high level wakes it; subsequent low/high pulses select a level.
+    uint8_t target = (uint8_t)((pct * 16u + 50u) / 100u);
+    if (target > 16) target = 16;
+    if (target == 0) {
+        gpio_set_level(PIN_BL, 0);
+        vTaskDelay(pdMS_TO_TICKS(3));
+        s_bl_level = 0;
+        return;
+    }
+    if (s_bl_level == 0) {
+        gpio_set_level(PIN_BL, 1);
+        esp_rom_delay_us(30);
+        s_bl_level = 16;
+    }
+    uint8_t pulses = (uint8_t)((16u + s_bl_level - target) % 16u);
+    for (uint8_t i = 0; i < pulses; i++) {
+        gpio_set_level(PIN_BL, 0);
+        gpio_set_level(PIN_BL, 1);
+    }
+    s_bl_level = target;
 }
 
 // ─── 区域推送：i80 整块直推（无 SPI 分块限制）────────────────────────
@@ -83,6 +140,15 @@ void lcd_init(void) {
     gpio_config(&pwr);
     gpio_set_level(PIN_PWR, 1);
     vTaskDelay(pdMS_TO_TICKS(50));
+
+    // RD is unused by the write-only i80 driver, but the LCD controller
+    // expects this input high rather than floating.
+    gpio_config_t rd = {
+        .pin_bit_mask = 1ULL << PIN_RD,
+        .mode = GPIO_MODE_OUTPUT,
+    };
+    gpio_config(&rd);
+    gpio_set_level(PIN_RD, 1);
 
     // 2) i80 总线
     esp_lcd_i80_bus_handle_t i80_bus;
@@ -106,18 +172,24 @@ void lcd_init(void) {
         .cs_gpio_num = PIN_CS,
         .pclk_hz = PCLK_HZ,
         .trans_queue_depth = 10,
+        .on_color_trans_done = lcd_color_trans_done,
         .dc_levels = {
             .dc_idle_level = 0,
             .dc_cmd_level = 0,
             .dc_dummy_level = 0,
             .dc_data_level = 1,
         },
+        // Swap only while the i80 peripheral sends the pixels. LVGL keeps
+        // its RGB565 buffers in CPU-native order for safe partial reuse.
+        .flags = {
+            .swap_color_bytes = 1,
+        },
         .lcd_cmd_bits = 8,
         .lcd_param_bits = 8,
     };
     ESP_ERROR_CHECK(esp_lcd_new_panel_io_i80(i80_bus, &io_cfg, &io));
 
-    // 3) ST7789 面板：BGR + 颜色反转 + 横屏(swap_xy + mirror_x) + GRAM 偏移
+    // 3) ST7789 面板：官方横屏方向为 swap_xy + mirror_y + GRAM 偏移
     esp_lcd_panel_dev_config_t panel_cfg = {
         .reset_gpio_num = PIN_RST,
         .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR,
@@ -129,8 +201,14 @@ void lcd_init(void) {
     ESP_ERROR_CHECK(esp_lcd_panel_invert_color(s_panel, true));
     ESP_ERROR_CHECK(esp_lcd_panel_set_gap(s_panel, X_GAP, Y_GAP));
     ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(s_panel, true));   // 横屏 320x170
-    ESP_ERROR_CHECK(esp_lcd_panel_mirror(s_panel, true, false));
+    ESP_ERROR_CHECK(esp_lcd_panel_mirror(s_panel, false, true));
     ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(s_panel, true));
+
+    for (size_t i = 0; i < sizeof(s_st7789_init) / sizeof(s_st7789_init[0]); i++) {
+        const st7789_cmd_t *cmd = &s_st7789_init[i];
+        ESP_ERROR_CHECK(esp_lcd_panel_io_tx_param(io, cmd->cmd, cmd->data, cmd->len & 0x7F));
+        if (cmd->len & 0x80) vTaskDelay(pdMS_TO_TICKS(120));
+    }
 
     bl_init();
     ESP_LOGI(TAG, "LCD ready");
