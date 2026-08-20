@@ -56,6 +56,8 @@ static const char *TAG = "widget";
 static EventGroupHandle_t s_eg;
 static char s_ip[16] = "---";
 static volatile bool s_wifi_ok = false;
+static volatile uint8_t s_wifi_retry_count = 0;
+static esp_timer_handle_t s_wifi_retry_timer;
 static bool s_night_dim = false;
 static lv_timer_t *s_roll_timer;
 
@@ -89,19 +91,42 @@ static lv_timer_t *s_roll_timer;
 // ─── Wi-Fi ───────────────────────────────────────────────────────────
 
 #if !APP_DEMO_MODE
+static void wifi_retry_cb(void *arg) {
+    (void)arg;
+    if (!s_wifi_ok) esp_wifi_connect();
+}
+
+static void wifi_schedule_retry(void) {
+    if (!s_wifi_retry_timer) return;
+    uint8_t attempt = s_wifi_retry_count > 5 ? 5 : s_wifi_retry_count;
+    uint64_t delay_ms = 1000ULL << attempt;
+    if (delay_ms > 30000) delay_ms = 30000;
+    esp_timer_stop(s_wifi_retry_timer);
+    esp_timer_start_once(s_wifi_retry_timer, delay_ms * 1000ULL);
+}
+
 static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *data) {
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
         s_wifi_ok = false;
+        s_wifi_retry_count = s_wifi_retry_count < 15 ? s_wifi_retry_count + 1 : 15;
+        strncpy(s_ip, "---", sizeof(s_ip));
         xEventGroupClearBits(s_eg, BIT_IP);
-        esp_wifi_connect();
+        ikuai_monitor_network_changed();
+        wifi_schedule_retry();
+        wifi_event_sta_disconnected_t *d = (wifi_event_sta_disconnected_t *)data;
+        ESP_LOGW(TAG, "wifi disconnected reason=%d retry=%u",
+                 d ? d->reason : 0, (unsigned)s_wifi_retry_count);
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *e = (ip_event_got_ip_t *)data;
         esp_ip4addr_ntoa(&e->ip_info.ip, s_ip, sizeof(s_ip));
         s_wifi_ok = true;
+        s_wifi_retry_count = 0;
+        if (s_wifi_retry_timer) esp_timer_stop(s_wifi_retry_timer);
         xEventGroupSetBits(s_eg, BIT_IP);
         ESP_LOGI(TAG, "got ip %s", s_ip);
+        ikuai_monitor_network_changed();
         if (!esp_sntp_enabled()) {          // 网络授时,用于夜间自动降背光
             setenv("TZ", APP_TZ, 1);
             tzset();
@@ -120,6 +145,11 @@ static void wifi_start(void) {
     ESP_ERROR_CHECK(esp_wifi_init(&wc));
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &on_wifi_event, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &on_wifi_event, NULL));
+    const esp_timer_create_args_t retry_args = {
+        .callback = wifi_retry_cb,
+        .name = "wifi_retry",
+    };
+    ESP_ERROR_CHECK(esp_timer_create(&retry_args, &s_wifi_retry_timer));
     wifi_config_t cfg = { 0 };
     strncpy((char *)cfg.sta.ssid, APP_WIFI_SSID, sizeof(cfg.sta.ssid) - 1);
     strncpy((char *)cfg.sta.password, APP_WIFI_PASS, sizeof(cfg.sta.password) - 1);
@@ -323,7 +353,7 @@ static void curve_roll(void) {
 static lv_obj_t *lbl_status, *lbl_online, *lbl_down, *lbl_up;
 static lv_obj_t *lbl_down_unit, *lbl_up_unit, *lbl_ping, *lbl_ip;
 static lv_obj_t *lbl_ping_bg;
-static lv_obj_t *dot_status;
+static lv_obj_t *dot_status, *lbl_source;
 static lv_obj_t *lbl_main_curve_state, *lbl_curve_state;
 static lv_obj_t *lbl_curve_down, *lbl_curve_up, *lbl_curve_ping;
 
@@ -479,6 +509,10 @@ static lv_obj_t *s_pg[PAGE_COUNT];
 static lv_obj_t *s_dots[PAGE_COUNT];
 static bool s_bl_off = false;
 static uint32_t s_last_key_ms = 0;
+static uint32_t s_dot_feedback_until_ms = 0;
+
+#define BUTTON_MULTI_CLICK_MS 260
+#define BUTTON_HOLD_MS 1200
 
 // 焦点页元素
 static lv_obj_t *lbl_focus_num, *lbl_focus_unit, *lbl_focus_sub, *lbl_focus_peak;
@@ -562,6 +596,13 @@ static void show_page(int idx, int dir) {
     lv_obj_invalidate(lv_scr_act());
 }
 
+static void button_feedback(void) {
+    if (s_page >= 0 && s_page < PAGE_COUNT) {
+        lv_obj_set_style_bg_color(s_dots[s_page], lv_color_hex(CLR_TEXT), 0);
+        s_dot_feedback_until_ms = (uint32_t)(esp_timer_get_time() / 1000) + 220;
+    }
+}
+
 static lv_obj_t *mk_page(lv_obj_t *scr) {
     lv_obj_t *pg = lv_obj_create(scr);
     lv_obj_remove_style_all(pg);
@@ -602,7 +643,7 @@ static void build_page_dual(lv_obj_t *pg) {
     lv_label_set_text(lbl_dual_state, "WAN ONLINE");
     lbl_dual_ping = mk_label(pg, 0, 3, UI_FONT_META, CLR_PING);
     lv_obj_align(lbl_dual_ping, LV_ALIGN_TOP_RIGHT, -12, 3);
-    lv_label_set_text(lbl_dual_ping, "PING -- MS");
+    lv_label_set_text(lbl_dual_ping, "GW -- MS");
     mk_block(pg, 12, 22, 296, 1, CLR_BORDER);
     mk_block(pg, 159, 32, 1, 104, CLR_BORDER);
 
@@ -642,7 +683,7 @@ static void build_page_curve(lv_obj_t *pg) {
     constrain_metric_label(lbl_curve_ping, 88);
     lv_obj_align(lbl_curve_ping, LV_ALIGN_TOP_RIGHT, -12, 1);
     lv_obj_set_style_text_align(lbl_curve_ping, LV_TEXT_ALIGN_RIGHT, 0);
-    lv_label_set_text(lbl_curve_ping, "P --");
+    lv_label_set_text(lbl_curve_ping, "GW --");
     mk_block(pg, 12, 19, 296, 1, CLR_BORDER);
 
     canvas_curve2 = lv_canvas_create(pg);
@@ -675,7 +716,7 @@ static void build_page_network(lv_obj_t *pg) {
     constrain_metric_label(lbl_net_down, 96);
     constrain_metric_label(lbl_net_up, 88);
     lv_obj_set_style_text_align(lbl_net_up, LV_TEXT_ALIGN_RIGHT, 0);
-    lv_label_set_text(lbl_net_ping, "P --");
+    lv_label_set_text(lbl_net_ping, "GW --");
     lv_label_set_text(lbl_net_down, "D --");
     lv_label_set_text(lbl_net_up, "U --");
     lbl_net_footer = mk_label(pg, 12, 132, UI_FONT_META, CLR_DIM);
@@ -730,7 +771,7 @@ static void build_page_health(lv_obj_t *pg) {
     lbl_uptime = mk_label(pg, 244, 102, UI_FONT_META, CLR_TEXT);
     lv_label_set_text(lbl_uptime, "--");
     lbl_health_meta = mk_label(pg, 12, 130, UI_FONT_META, CLR_DIM);
-    lv_label_set_text(lbl_health_meta, "CLIENTS -- · HEAP -- · VER --");
+    lv_label_set_text(lbl_health_meta, "CLIENTS -- | HEAP -- | VER --");
 }
 
 // 页面 7:WAN 线路详情页 —— 状态点 + 状态词 + 公网 IP + 网关。
@@ -784,7 +825,7 @@ static void build_page_top(lv_obj_t *pg) {
     }
     mk_block(pg, 12, 143, 296, 1, CLR_BORDER);
     lbl_top_total = mk_label(pg, 12, 149, UI_FONT_META, CLR_DIM);
-    lv_label_set_text(lbl_top_total, "TOTAL DOWN -- · UP --");
+    lv_label_set_text(lbl_top_total, "TOTAL DOWN -- | UP --");
 }
 
 // 页面 9:无线 AC 状态页。
@@ -828,10 +869,16 @@ static void night_dim_poll(void) {
             lv_timer_set_period(s_roll_timer, night ? (1000 / 15) : (1000 / CURVE_FPS));
         }
     }
+    if (lbl_source) {
+        lv_label_set_text(lbl_source, s_night_dim ? "NIGHT DIM" :
+                          (APP_DEMO_MODE ? "DEMO DATA" : "IKUAI LIVE"));
+        lv_obj_set_style_text_color(lbl_source,
+            lv_color_hex(s_night_dim ? CLR_YELLOW : CLR_DIM), 0);
+    }
 }
 
 // BOOT 键:单击=下一页,双击=回主页,长按(>1.2s)=息屏/唤醒(消抖 30ms)
-// 单击不立即执行:先挂起 350ms,期间若再次按下则判为双击
+// 单击不立即执行:先挂起 260ms,期间若再次按下则判为双击
 static void boot_poll(void) {
     static int stable = 1, last_raw = 1, deb = 0;
     static uint32_t press_ms = 0;
@@ -849,9 +896,10 @@ static void boot_poll(void) {
         else {
             uint32_t dt = now - press_ms;
             if (!long_fired && dt < 1200) {
-                if (pending && now - pending_ms < 350) {
+                if (pending && now - pending_ms < BUTTON_MULTI_CLICK_MS) {
                     pending = false;    // 双击:直接回主页
                     show_page(0, -1);
+                    button_feedback();
                 } else {
                     pending = true;     // 单击待定,等双击窗口
                     pending_ms = now;
@@ -859,16 +907,18 @@ static void boot_poll(void) {
             }
         }
     }
-    if (pending && now - pending_ms >= 350) {
+    if (pending && now - pending_ms >= BUTTON_MULTI_CLICK_MS) {
         pending = false;
         show_page((s_page + 1) % PAGE_COUNT, 1);
+        button_feedback();
     }
-    if (stable == 0 && !long_fired && now - press_ms > 1200) {
+    if (stable == 0 && !long_fired && now - press_ms > BUTTON_HOLD_MS) {
         long_fired = true;
         pending = false;
         s_bl_off = !s_bl_off;
         s_night_dim = false;
         lcd_set_backlight(s_bl_off ? 0 : APP_BL_PCT);
+        button_feedback();
     }
 }
 
@@ -907,7 +957,7 @@ static void ui_create(void) {
     lv_obj_set_style_radius(lbl_ping_bg, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_pad_hor(lbl_ping_bg, 6, 0);
     lbl_ping = mk_label(lbl_ping_bg, 0, 0, UI_FONT_META, CLR_PING);
-    lv_label_set_text(lbl_ping, "PING -- MS");
+    lv_label_set_text(lbl_ping, "GW -- MS");
     lv_obj_center(lbl_ping);
 
     mk_pill(pg0, 12, 20, "DOWN", CLR_DOWN, 0x000000);
@@ -945,7 +995,7 @@ static void ui_create(void) {
     lv_label_set_text(legend_up, "UP");
     mk_block(graph, 186, 6, 3, 3, CLR_PING);
     lv_obj_t *legend_ping = mk_label(graph, 193, 1, UI_FONT_META, CLR_PING);
-    lv_label_set_text(legend_ping, "PING");
+    lv_label_set_text(legend_ping, "GW");
 
     canvas_curve = lv_canvas_create(graph);
     lv_obj_set_pos(canvas_curve, 0, 24);
@@ -953,9 +1003,9 @@ static void ui_create(void) {
 
     lbl_ip = mk_label(pg0, 12, 153, UI_FONT_META, CLR_DIM);
     lv_label_set_text(lbl_ip, APP_DEMO_MODE ? "IP DEMO" : "IP ---");
-    lv_obj_t *source = mk_label(pg0, 0, 153, UI_FONT_META, CLR_DIM);
-    lv_label_set_text(source, APP_DEMO_MODE ? "DEMO DATA" : "IKUAI LIVE");
-    lv_obj_align(source, LV_ALIGN_TOP_RIGHT, -12, 153);
+    lbl_source = mk_label(pg0, 0, 153, UI_FONT_META, CLR_DIM);
+    lv_label_set_text(lbl_source, APP_DEMO_MODE ? "DEMO DATA" : "IKUAI LIVE");
+    lv_obj_align(lbl_source, LV_ALIGN_TOP_RIGHT, -12, 153);
 
     build_page_focus(s_pg[1]);
     build_page_dual(s_pg[2]);
@@ -999,6 +1049,12 @@ static void set_ping_style(float ms) {
     lv_obj_set_style_text_color(lbl_ping, lv_color_hex(c), 0);
 }
 
+static bool sample_fresh(uint32_t ts, uint32_t max_age_sec) {
+    if (!ts) return false;
+    uint32_t now = (uint32_t)(esp_timer_get_time() / 1000000);
+    return now >= ts && now - ts <= max_age_sec;
+}
+
 static void set_curve_state(const char *text, uint32_t color) {
     if (lbl_main_curve_state) {
         lv_label_set_text(lbl_main_curve_state, text);
@@ -1007,6 +1063,32 @@ static void set_curve_state(const char *text, uint32_t color) {
     if (lbl_curve_state) {
         lv_label_set_text(lbl_curve_state, text);
         lv_obj_set_style_text_color(lbl_curve_state, lv_color_hex(color), 0);
+    }
+}
+
+static void link_failure_text(const char **detail, const char **footer) {
+    switch (ikuai_get_link_state()) {
+    case IKUAI_LINK_AUTH_ERROR:
+        *detail = "CHECK TOKEN / AUTH";
+        *footer = "UPDATE CREDENTIALS";
+        break;
+    case IKUAI_LINK_TIMEOUT:
+        *detail = "API TIMEOUT";
+        *footer = "CHECK ROUTER LOAD";
+        break;
+    case IKUAI_LINK_HTTP_ERROR:
+        *detail = "API HTTP ERROR";
+        *footer = "CHECK ROUTER API";
+        break;
+    case IKUAI_LINK_NETWORK_ERROR:
+        *detail = "ROUTER UNREACHABLE";
+        *footer = "CHECK ROUTER / WIFI";
+        break;
+    case IKUAI_LINK_WAIT:
+    default:
+        *detail = "WAITING FOR API";
+        *footer = "CONNECTING";
+        break;
     }
 }
 
@@ -1037,8 +1119,8 @@ static void pages_update(void) {
     set_active_style(lbl_dual_up, lbl_dual_up_unit, CLR_UP, s_up_active);
     snprintf(line, sizeof(line), "IP %s", s_ip);
     lv_label_set_text(lbl_dual_ip, line);
-    snprintf(line, sizeof(line), "PING %s", s_last_ping_ms < 0 ? "-- MS" : "");
-    if (s_last_ping_ms >= 0) snprintf(line, sizeof(line), "PING %.0f MS", (double)s_last_ping_ms);
+    snprintf(line, sizeof(line), "GW %s", s_last_ping_ms < 0 ? "-- MS" : "");
+    if (s_last_ping_ms >= 0) snprintf(line, sizeof(line), "GW %.0f MS", (double)s_last_ping_ms);
     lv_label_set_text(lbl_dual_ping, line);
     lv_obj_set_style_text_color(lbl_dual_ping,
         lv_color_hex(s_last_ping_ms < 0 || s_last_ping_ms >= 80 ? CLR_RED : CLR_PING), 0);
@@ -1047,8 +1129,8 @@ static void pages_update(void) {
     lv_label_set_text(lbl_curve_down, line);
     snprintf(line, sizeof(line), "U %s%s", s_last_u, s_last_uu);
     lv_label_set_text(lbl_curve_up, line);
-    if (s_last_ping_ms < 0) snprintf(line, sizeof(line), "P --");
-    else snprintf(line, sizeof(line), "P %.0f", (double)s_last_ping_ms);
+    if (s_last_ping_ms < 0) snprintf(line, sizeof(line), "GW --");
+    else snprintf(line, sizeof(line), "GW %.0f", (double)s_last_ping_ms);
     lv_label_set_text(lbl_curve_ping, line);
     lv_obj_set_style_text_color(lbl_curve_ping,
         lv_color_hex(s_last_ping_ms < 0 || s_last_ping_ms >= 80 ? CLR_RED : CLR_PING), 0);
@@ -1061,8 +1143,12 @@ static void pages_update(void) {
     if (!s_last_sys_ok) {
         net_color = CLR_RED;
         net_status = "WAN OFFLINE";
-        net_detail = s_wifi_ok ? "CHECK ROUTER / API" : "WIFI DISCONNECTED";
-        net_footer = "ACTION REQUIRED";
+        if (s_wifi_ok) {
+            link_failure_text(&net_detail, &net_footer);
+        } else {
+            net_detail = s_wifi_retry_count ? "WIFI RECONNECTING" : "WIFI CONNECTING";
+            net_footer = s_wifi_retry_count ? "RETRY BACKOFF ACTIVE" : "WAITING FOR WIFI";
+        }
     } else if (s_last_ping_ms < 0) {
         net_color = CLR_RED;
         net_status = "PING TIMEOUT";
@@ -1087,8 +1173,8 @@ static void pages_update(void) {
     lv_label_set_text(lbl_dual_state, s_last_sys_ok ? "WAN ONLINE" : "WAN OFFLINE");
     lv_obj_set_style_text_color(lbl_dual_state, lv_color_hex(s_last_sys_ok ? CLR_GREEN : CLR_RED), 0);
 
-    if (s_last_ping_ms < 0) snprintf(line, sizeof(line), "P --");
-    else snprintf(line, sizeof(line), "P %.0f", (double)s_last_ping_ms);
+    if (s_last_ping_ms < 0) snprintf(line, sizeof(line), "GW --");
+    else snprintf(line, sizeof(line), "GW %.0f", (double)s_last_ping_ms);
     lv_label_set_text(lbl_net_ping, line);
     snprintf(line, sizeof(line), "D %s", s_last_d);
     lv_label_set_text(lbl_net_down, line);
@@ -1109,7 +1195,7 @@ static void pages_update(void) {
         lv_color_hex(s_last_sys_ok ? CLR_GREEN : CLR_RED), 0);
     snprintf(line, sizeof(line), "%ld CLIENTS", s_last_clients < 0 ? 0 : s_last_clients);
     lv_label_set_text(lbl_top_count, line);
-    snprintf(line, sizeof(line), "TOTAL DOWN %s%s · UP %s%s",
+    snprintf(line, sizeof(line), "TOTAL DOWN %s%s | UP %s%s",
              s_last_d, s_last_du, s_last_u, s_last_uu);
     lv_label_set_text(lbl_top_total, line);
 
@@ -1131,8 +1217,11 @@ static void pages_update(void) {
     ikuai_extra_t ex;
     bool has_ex = false;
 #if APP_DEMO_MODE
+    uint32_t now_sec = (uint32_t)(esp_timer_get_time() / 1000000);
     memset(&ex, 0, sizeof(ex));
     ex.ok = true; has_ex = true;
+    ex.system_ts = now_sec; ex.wan_ts = now_sec;
+    ex.clients_ts = now_sec; ex.ac_ts = now_sec;
     ex.cpu_temp = 46; ex.uptime_sec = 86400 * 3 + 3600 * 7;
     strncpy(ex.version, "3.7.21", sizeof(ex.version));
     ex.wan_cnt = 1;
@@ -1146,6 +1235,10 @@ static void pages_update(void) {
 #else
     has_ex = ikuai_get_extra(&ex);
 #endif
+    bool system_fresh = has_ex && sample_fresh(ex.system_ts, 10);
+    bool wan_fresh = has_ex && sample_fresh(ex.wan_ts, 10);
+    bool clients_fresh = has_ex && sample_fresh(ex.clients_ts, 10);
+    bool ac_fresh = has_ex && sample_fresh(ex.ac_ts, 10);
     // 健康页:CPU/MEM 用 1s 实时数据;温度/运行时间用扩展数据
     {
         ikuai_sys_t sy;
@@ -1162,52 +1255,69 @@ static void pages_update(void) {
         align_value_suffix(lbl_mem, lbl_mem_unit);
     }
     if (has_ex) {
+        if (system_fresh) {
         snprintf(line, sizeof(line), "%.0f C", (double)ex.cpu_temp);
         lv_label_set_text(lbl_temp, line);
         uint32_t d = ex.uptime_sec / 86400, h = (ex.uptime_sec % 86400) / 3600;
         snprintf(line, sizeof(line), "%lud %02luh", (unsigned long)d, (unsigned long)h);
         lv_label_set_text(lbl_uptime, line);
-        snprintf(line, sizeof(line), "%ld CLT · %uK HEAP · V%s",
+        snprintf(line, sizeof(line), "%ld CLT | %uK HEAP | V%s",
                  s_last_clients < 0 ? 0 : s_last_clients,
                  (unsigned)(heap_caps_get_free_size(MALLOC_CAP_8BIT) / 1024),
                  ex.version[0] ? ex.version : "--");
         lv_label_set_text(lbl_health_meta, line);
+        } else {
+            lv_label_set_text(lbl_temp, "STALE");
+            lv_label_set_text(lbl_uptime, "STALE");
+            snprintf(line, sizeof(line), "%ld CLT | %uK HEAP | VSTALE",
+                     s_last_clients < 0 ? 0 : s_last_clients,
+                     (unsigned)(heap_caps_get_free_size(MALLOC_CAP_8BIT) / 1024));
+            lv_label_set_text(lbl_health_meta, line);
+        }
         // WAN 页
         for (int i = 0; i < 2; i++) {
             bool on = i < ex.wan_cnt;
             bool ok = on && ex.wan[i].ok;
-            lv_label_set_text(lbl_wan[i][0], ok ? "ONLINE" : "OFFLINE");
-            lv_obj_set_style_text_color(lbl_wan[i][0], lv_color_hex(ok ? CLR_GREEN : CLR_RED), 0);
-            lv_label_set_text(lbl_wan[i][1], on ? ex.wan[i].ip : "--");
-            lv_label_set_text(lbl_wan[i][2], on ? ex.wan[i].gateway : "--");
+            lv_label_set_text(lbl_wan[i][0], !wan_fresh ? "STALE" : (ok ? "ONLINE" : "OFFLINE"));
+            lv_obj_set_style_text_color(lbl_wan[i][0],
+                lv_color_hex(!wan_fresh ? CLR_PING : (ok ? CLR_GREEN : CLR_RED)), 0);
+            lv_label_set_text(lbl_wan[i][1], wan_fresh && on ? ex.wan[i].ip : "--");
+            lv_label_set_text(lbl_wan[i][2], wan_fresh && on ? ex.wan[i].gateway : "--");
             lv_obj_set_style_bg_color(lbl_wan_dot[i],
-                lv_color_hex(ok ? CLR_GREEN : CLR_RED), 0);
+                lv_color_hex(!wan_fresh ? CLR_PING : (ok ? CLR_GREEN : CLR_RED)), 0);
         }
         // 排行页
         for (int i = 0; i < 3; i++) {
-            if (i < ex.client_cnt) {
+            if (clients_fresh && i < ex.client_cnt) {
                 lv_label_set_text(lbl_cli[i][0], ex.client[i].name);
                 char v[16]; const char *u;
                 fmt_rate(ex.client[i].down_bps, v, sizeof(v), &u);
                 snprintf(line, sizeof(line), "%s %s", v, u);
                 lv_label_set_text(lbl_cli[i][1], line);
             } else {
-                lv_label_set_text(lbl_cli[i][0], "--");
-                lv_label_set_text(lbl_cli[i][1], "--");
+                lv_label_set_text(lbl_cli[i][0], clients_fresh ? "--" : "STALE");
+                lv_label_set_text(lbl_cli[i][1], clients_fresh ? "--" : "STALE");
             }
         }
         // AC 页
-        lv_label_set_text(lbl_ac, ex.ac_on ? "ON" : "OFF");
-        snprintf(line, sizeof(line), "%d / %d", ex.ap_online, ex.ap_count);
-        lv_label_set_text(lbl_ap, line);
-        snprintf(line, sizeof(line), "%02d", ex.clt_2g);
-        lv_label_set_text(lbl_clt_2g, line);
-        snprintf(line, sizeof(line), "%02d", ex.clt_5g);
-        lv_label_set_text(lbl_clt_5g, line);
+        if (ac_fresh) {
+            lv_label_set_text(lbl_ac, ex.ac_on ? "ON" : "OFF");
+            snprintf(line, sizeof(line), "%d / %d", ex.ap_online, ex.ap_count);
+            lv_label_set_text(lbl_ap, line);
+            snprintf(line, sizeof(line), "%02d", ex.clt_2g);
+            lv_label_set_text(lbl_clt_2g, line);
+            snprintf(line, sizeof(line), "%02d", ex.clt_5g);
+            lv_label_set_text(lbl_clt_5g, line);
+        } else {
+            lv_label_set_text(lbl_ac, "STALE");
+            lv_label_set_text(lbl_ap, "STALE");
+            lv_label_set_text(lbl_clt_2g, "--");
+            lv_label_set_text(lbl_clt_5g, "--");
+        }
     } else {
         lv_label_set_text(lbl_temp, "--");
         lv_label_set_text(lbl_uptime, "--");
-        snprintf(line, sizeof(line), "%ld CLT · %uK HEAP · V--",
+        snprintf(line, sizeof(line), "%ld CLT | %uK HEAP | V--",
                  s_last_clients < 0 ? 0 : s_last_clients,
                  (unsigned)(heap_caps_get_free_size(MALLOC_CAP_8BIT) / 1024));
         lv_label_set_text(lbl_health_meta, line);
@@ -1267,7 +1377,7 @@ static void ui_update(void) {
     lv_label_set_text(lbl_online, "18 CLIENTS");
     lv_label_set_text(lbl_status, "DEMO ONLINE");
     lv_obj_set_style_bg_color(dot_status, lv_color_hex(CLR_GREEN), 0);
-    snprintf(line, sizeof(line), "PING %.0f MS", ping_ms);
+    snprintf(line, sizeof(line), "GW %.0f MS", ping_ms);
     lv_label_set_text(lbl_ping, line);
     lv_label_set_text(lbl_ip, "IP DEMO");
 
@@ -1324,7 +1434,14 @@ static void ui_update(void) {
         lv_label_set_text(lbl_down_unit, "");
         lv_label_set_text(lbl_up_unit, "");
         lv_label_set_text(lbl_online, "-- CLIENTS");
-        lv_label_set_text(lbl_status, s_wifi_ok ? "WAN OFFLINE" : "WIFI OFFLINE");
+        if (s_wifi_ok) lv_label_set_text(lbl_status, "WAN OFFLINE");
+        else if (s_wifi_retry_count) {
+            char retry[24];
+            snprintf(retry, sizeof(retry), "WIFI RETRY %u", (unsigned)s_wifi_retry_count);
+            lv_label_set_text(lbl_status, retry);
+        } else {
+            lv_label_set_text(lbl_status, "WIFI CONNECTING");
+        }
         lv_obj_set_style_bg_color(dot_status, lv_color_hex(CLR_RED), 0);
         s_last_active = false;
         s_up_active = false;
@@ -1347,14 +1464,14 @@ static void ui_update(void) {
         int slot = (c.head - 1 + IKUAI_CURVE_MAX) % IKUAI_CURVE_MAX;
         float p = c.ping_ms[slot];
         if (p < 0) {
-            lv_label_set_text(lbl_ping, "PING -- MS");
+            lv_label_set_text(lbl_ping, "GW -- MS");
             set_ping_style(-1);
             s_last_ping_ms = -1;
             s_track[TRACK_PING].target = 0;
         }
         else {
             char line[24];
-            snprintf(line, sizeof(line), "PING %.0f MS", p);
+            snprintf(line, sizeof(line), "GW %.0f MS", p);
             lv_label_set_text(lbl_ping, line);
             set_ping_style(p);
             s_last_ping_ms = p;
@@ -1364,7 +1481,7 @@ static void ui_update(void) {
             s_track[TRACK_PING].target = p / s_peak_ping;
         }
     } else {
-        lv_label_set_text(lbl_ping, "PING -- MS");
+        lv_label_set_text(lbl_ping, "GW -- MS");
         set_ping_style(-1);
         s_last_ping_ms = -1;
         set_curve_state(sys_ok ? "NO DATA" : "TIMEOUT", sys_ok ? CLR_DIM : CLR_RED);
@@ -1386,6 +1503,14 @@ static lv_timer_t *s_ui_timer;
 static void ui_timer_cb(lv_timer_t *t) {
     ui_update();
     night_dim_poll();
+
+    uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
+    if (s_dot_feedback_until_ms &&
+        (int32_t)(now_ms - s_dot_feedback_until_ms) >= 0) {
+        s_dot_feedback_until_ms = 0;
+        if (s_page >= 0 && s_page < PAGE_COUNT)
+            lv_obj_set_style_bg_color(s_dots[s_page], lv_color_hex(CLR_YELLOW), 0);
+    }
 
     // 60s 无操作自动回主页(摆件的归宿感)
     if (s_page != 0 && s_last_key_ms &&

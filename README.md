@@ -33,7 +33,11 @@ The firmware contains ten single-purpose pages. The SVG previews below show the 
 
 Extended endpoints rotate one request every three seconds to keep router load low.
 
-BOOT (GPIO0): single press changes page, double press returns home, and long press toggles the display. The UI returns home after 60 seconds without input.
+The monitor marks each extended data source independently as live or stale instead of presenting old WAN/client/AC values as current. Rate parsing keeps the router's raw instantaneous field as a fallback and only applies counter-derived data when the units agree, preventing a silent 1024x error. The ping label is `GW` because it measures the local gateway, not an Internet speed test.
+
+BOOT (GPIO0): single press changes page, double press returns home, and long press toggles the display. The single/double decision window is 260 ms and the active page dot briefly flashes to confirm a key event. Wi-Fi reconnects with exponential backoff (up to 30 s) instead of hammering the access point. The UI returns home after 60 seconds without input.
+
+Day brightness is configurable from 0–100% and defaults to 45% in the tracked template; SNTP-based night dimming defaults to 12% from 23:00–07:00. The home footer changes to `NIGHT DIM` while the scheduled dim level is active.
 
 ## Hardware and display driver
 
@@ -91,6 +95,6 @@ examples/ikuai_widget/
 
 The `t-display-s3` firmware has been built, flashed to a physical board, and exercised on the real iKuai link. Serial evidence includes the 8 MB PSRAM memory test, the LVGL UI task starting on core 1, Wi‑Fi association, and a successful iKuai HTTPS API response. No reboot or UI task crash was observed during the monitored run.
 
-The latest physical check specifically covers startup, live data, page switching, and the adaptive CPU/MEM `%` suffix alignment. Final visual acceptance of every page still depends on the display angle and a direct screen check; build, serial, and API success are not substitutes for that visual check. Private router credentials and certificates remain local and are not part of this repository.
+The latest physical check specifically covers startup, live data, page switching, gateway ping startup, the adaptive CPU/MEM `%` suffix alignment, and the 45% day-backlight configuration. The API also now reports categorized failure states for the network-health page. Final visual acceptance of every page still depends on the display angle and a direct screen check; build, serial, and API success are not substitutes for that visual check. Private router credentials and certificates remain local and are not part of this repository.
 
 See [`CHANGELOG.md`](CHANGELOG.md) for the current UI and hardware-validation record.

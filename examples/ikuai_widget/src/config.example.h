@@ -14,13 +14,13 @@
 
 #define APP_TZ "CST-8"
 
-#define APP_BL_PCT 30
+#define APP_BL_PCT 45
 
 // 夜间自动降背光(SNTP 授时后生效;手动息屏优先)
 // 时段跨零点也可,例如 23~7 表示 23:00~次日 07:00
 #define APP_NIGHT_START 23
 #define APP_NIGHT_END   7
-#define APP_BL_NIGHT_PCT 8
+#define APP_BL_NIGHT_PCT 12
 
 // ── iKuai 路由器监视 ───────────────────────────────────────────────
 // token 获取：~/.ikuai-cli/config.json（ikuai-cli auth set-token）

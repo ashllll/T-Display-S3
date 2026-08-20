@@ -6,9 +6,10 @@
 
 ## 最新 UI 更新 / Latest UI update
 
-CPU/MEM 百分比现在会在数值从 `--`、个位数变化到三位数时重新锚定 `%` 单位，避免单位漂移、重叠或与数字脱节。速率单位也按当前值宽度重新对齐；本版同时保留大号原生数字和单一焦点排版，优先保证真实小屏可读性。
+CPU/MEM 百分比现在会在数值从 `--`、个位数变化到三位数时重新锚定 `%` 单位，避免单位漂移、重叠或与数字脱节。速率单位也按当前值宽度重新对齐；本版同时保留大号原生数字和单一焦点排版，优先保证真实小屏可读性。WAN、客户端排行和无线 AC 还会按各自时间戳显示 `STALE`，避免网络异常时误读缓存。
 
 When CPU or memory values change width—from `--` to one, two, or three digits—the `%` suffix is re-anchored after each update. This prevents drift and overlap on the physical 320×170 display. Rate units use the same width-aware alignment, while the large native-number layout remains the readability baseline.
+Each extended data source now has its own freshness timestamp and shows `STALE` when it expires. Rate normalization keeps the raw API value unless counter-derived data has a plausible unit relationship, preventing a silent 1024x mismatch. Gateway latency is labeled `GW` so it is not mistaken for an Internet speed test.
 
 ## 十页设计与显示目标
 
@@ -35,7 +36,7 @@ When CPU or memory values change width—from `--` to one, two, or three digits�
 
 > 扩展端点采用**轮转制**：每 3 秒只发一个额外请求（WAN → 终端 → AC 循环），不给路由器加压力；AC 未开启时第 10 页显示 OFF 且不再请求无线统计。
 
-**BOOT 键（GPIO0）**：单击 = 下一页（350ms 双击窗口内第二次按下 = 直接回主页，循环翻页带 190ms 缓出滑入动画）；长按 1.2s = 息屏/唤醒（背光 0 ↔ 配置值）。消抖 30ms。**60 秒无操作自动回主页**。
+**BOOT 键（GPIO0）**：单击 = 下一页（260ms 双击窗口内第二次按下 = 直接回主页，当前页码点会短暂闪亮）；长按 1.2s = 息屏/唤醒（背光 0 ↔ 配置值）。消抖 30ms。**60 秒无操作自动回主页**。
 
 ## 动态行为（酷态科语言的灵魂细节）
 
@@ -45,7 +46,7 @@ When CPU or memory values change width—from `--` to one, two, or three digits�
 - **焦点页峰值标记**：会话峰值以 `PEAK x.x MB/s *` 黄字常驻（模式 C 规格）
 - **翻页方向感动画**：向前翻从右滑入，回翻从左滑入
 - **焦点页流星汇入**：仅在流量明显变化时短暂出现 6 颗青/蓝流星，避免持续粒子遮挡主数字；设置 `APP_REDUCED_MOTION=1` 可关闭页面滑动和流星动效
-- **夜间静音模式**：SNTP 授时（ntp.aliyun.com，CST-8）后，23:00–07:00 背光自动降到 `APP_BL_NIGHT_PCT`（默认 8%），曲线保持 15 FPS，并关闭流星和翻页动效；时段可在 `config.h` 改，手动息屏优先，时间未同步时不动作
+- **夜间静音模式**：SNTP 授时（ntp.aliyun.com，CST-8）后，23:00–07:00 背光自动降到 `APP_BL_NIGHT_PCT`（模板默认 12%），主页显示 `NIGHT DIM`，曲线保持 15 FPS，并关闭流星和翻页动效；时段可在 `config.h` 改，手动息屏优先，时间未同步时不动作
 
 ## 硬件
 
@@ -65,7 +66,7 @@ When CPU or memory values change width—from `--` to one, two, or three digits�
 
 ## 功能
 
-- **LVGL 监控面板**（横屏 320×170，背光默认上限 30%，可在配置中调整）：WAN 在线状态、在线设备数、网关 PING（橙色描边胶囊）、下行/上行实时速率大数字（主页 D-DIN Italic、焦点页原生 48px，青/蓝胶囊标签）、约 10 秒三色滚动趋势曲线（15 FPS，临界阻尼平滑）
+- **LVGL 监控面板**（横屏 320×170，背光 0–100% 映射，模板日间默认 45%）：WAN 在线状态、在线设备数、网关 PING（橙色描边胶囊）、下行/上行实时速率大数字（主页 D-DIN Italic、焦点页原生 48px，青/蓝胶囊标签）、约 10 秒三色滚动趋势曲线（15 FPS，临界阻尼平滑）
 - **iKuai 路由器数据源**：HTTPS + Bearer token + 固定证书，1 秒轮询
 - **离线演示模式**：`APP_DEMO_MODE=1` 时使用模拟数据运行
 

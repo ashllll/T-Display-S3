@@ -28,7 +28,7 @@ static const char *TAG = "lcd";
 static const int s_data_pins[8] = { 39, 40, 41, 42, 45, 46, 47, 48 };
 
 #define PCLK_HZ     (16 * 1000 * 1000)
-#define BL_MAX_PCT  40    // 背光控制范围；应用默认值仍由 config.h 限制
+#define BL_MAX_PCT  100   // 16 级背光映射到 0~100%，应用可按环境调节
 
 // 官方 T-Display-S3 工厂程序使用竖屏 GRAM 偏移 (0, 35)，
 // 再通过 swap_xy 转为横屏 320x170。
