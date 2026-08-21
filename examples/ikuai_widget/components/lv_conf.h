@@ -43,11 +43,11 @@
 #define LV_USE_ASSERT_OBJ 0
 
 /*==================== 字体 ====================*/
-#define LV_FONT_MONTSERRAT_12 0         /* UI uses the bundled custom 1bpp label font */
+#define LV_FONT_MONTSERRAT_12 0         /* UI uses the bundled custom 1bpp crisp label font */
 #define LV_FONT_MONTSERRAT_14 1
 #define LV_FONT_MONTSERRAT_20 1
 #define LV_FONT_MONTSERRAT_28 0
-#define LV_FONT_MONTSERRAT_36 1         /* Native 36px numeric font avoids custom bitmap striping */
+#define LV_FONT_MONTSERRAT_36 0         /* UI uses the bundled custom crisp numeric font */
 #define LV_FONT_MONTSERRAT_48 1         /* native-size focus-page fallback; no runtime scaling */
 #define LV_FONT_DEFAULT &lv_font_montserrat_14
 

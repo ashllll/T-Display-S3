@@ -28,12 +28,14 @@
 #include "esp_sntp.h"
 #include <time.h>
 
-LV_FONT_DECLARE(lv_font_montserrat_36);
 LV_FONT_DECLARE(lv_font_montserrat_20);
 LV_FONT_DECLARE(lv_font_montserrat_48);
+LV_FONT_DECLARE(ui_font_crisp_12);
+LV_FONT_DECLARE(ui_font_crisp_36);
 
-#define UI_FONT_META  (&lv_font_montserrat_14)
+#define UI_FONT_META  (&ui_font_crisp_12)
 #define UI_FONT_TITLE (&lv_font_montserrat_20)
+#define UI_FONT_METRIC (&ui_font_crisp_36)
 
 #ifndef APP_DEMO_MODE
 #define APP_DEMO_MODE 0
@@ -376,6 +378,8 @@ static lv_obj_t *mk_label(lv_obj_t *parent, int x, int y, const lv_font_t *f, ui
     lv_obj_t *l = lv_label_create(parent);
     lv_obj_set_style_text_font(l, f, 0);
     lv_obj_set_style_text_color(l, lv_color_hex(color), 0);
+    lv_obj_set_style_text_opa(l, LV_OPA_COVER, 0);
+    lv_obj_set_style_opa(l, LV_OPA_COVER, 0);
     lv_obj_set_pos(l, x, y);
     lv_obj_set_style_text_letter_space(l, 0, 0);
     lv_label_set_text(l, "");
@@ -412,6 +416,8 @@ static lv_obj_t *mk_pill(lv_obj_t *parent, int x, int y, const char *text, uint3
     lv_obj_t *l = lv_label_create(o);
     lv_obj_set_style_text_font(l, UI_FONT_META, 0);
     lv_obj_set_style_text_color(l, lv_color_hex(fg), 0);
+    lv_obj_set_style_text_opa(l, LV_OPA_COVER, 0);
+    lv_obj_set_style_opa(l, LV_OPA_COVER, 0);
     lv_label_set_text(l, text);
     return o;
 }
@@ -649,8 +655,8 @@ static void build_page_dual(lv_obj_t *pg) {
 
     mk_pill(pg, 12, 30, "DOWN", CLR_DOWN, 0x000000);
     mk_pill(pg, 172, 30, "UP", CLR_UP, 0x000000);
-    lbl_dual_down = mk_label(pg, 12, 50, &lv_font_montserrat_36, CLR_TEXT);
-    lbl_dual_up = mk_label(pg, 172, 50, &lv_font_montserrat_36, CLR_TEXT);
+    lbl_dual_down = mk_label(pg, 12, 50, UI_FONT_METRIC, CLR_TEXT);
+    lbl_dual_up = mk_label(pg, 172, 50, UI_FONT_METRIC, CLR_TEXT);
     lv_label_set_text(lbl_dual_down, "--");
     lv_label_set_text(lbl_dual_up, "--");
     lbl_dual_down_unit = mk_label(pg, 12, 90, UI_FONT_META, CLR_DOWN);
@@ -753,9 +759,9 @@ static void build_page_health(lv_obj_t *pg) {
 
     mk_pill(pg, 12, 31, "CPU", CLR_PING, 0x000000);
     mk_pill(pg, 172, 31, "MEM", CLR_UP, 0x000000);
-    lbl_cpu = mk_label(pg, 12, 47, &lv_font_montserrat_36, CLR_TEXT);
+    lbl_cpu = mk_label(pg, 12, 47, UI_FONT_METRIC, CLR_TEXT);
     lv_label_set_text(lbl_cpu, "--");
-    lbl_mem = mk_label(pg, 172, 47, &lv_font_montserrat_36, CLR_TEXT);
+    lbl_mem = mk_label(pg, 172, 47, UI_FONT_METRIC, CLR_TEXT);
     lv_label_set_text(lbl_mem, "--");
     lbl_cpu_unit = mk_label(pg, 12, 71, UI_FONT_META, CLR_PING);
     lv_label_set_text(lbl_cpu_unit, "%");
@@ -841,8 +847,8 @@ static void build_page_ac(lv_obj_t *pg) {
     lv_label_set_text(lbl_ap, "--");
     mk_pill(pg, 12, 72, "2.4G", CLR_YELLOW, 0x000000);
     mk_pill(pg, 188, 72, "5G", CLR_PING, 0x000000);
-    lbl_clt_2g = mk_label(pg, 12, 90, &lv_font_montserrat_36, CLR_TEXT);
-    lbl_clt_5g = mk_label(pg, 188, 90, &lv_font_montserrat_36, CLR_TEXT);
+    lbl_clt_2g = mk_label(pg, 12, 90, UI_FONT_METRIC, CLR_TEXT);
+    lbl_clt_5g = mk_label(pg, 188, 90, UI_FONT_METRIC, CLR_TEXT);
     lv_label_set_text(lbl_clt_2g, "--");
     lv_label_set_text(lbl_clt_5g, "--");
     mk_block(pg, 12, 140, 296, 1, CLR_BORDER);
@@ -963,9 +969,9 @@ static void ui_create(void) {
     mk_pill(pg0, 12, 20, "DOWN", CLR_DOWN, 0x000000);
     mk_pill(pg0, 172, 20, "UP", CLR_UP, 0x000000);
 
-    lbl_down = mk_label(pg0, 12, 38, &lv_font_montserrat_36, CLR_TEXT);
+    lbl_down = mk_label(pg0, 12, 38, UI_FONT_METRIC, CLR_TEXT);
     lbl_down_unit = mk_label(pg0, 116, 56, UI_FONT_META, CLR_DOWN);
-    lbl_up = mk_label(pg0, 172, 38, &lv_font_montserrat_36, CLR_TEXT);
+    lbl_up = mk_label(pg0, 172, 38, UI_FONT_METRIC, CLR_TEXT);
     lbl_up_unit = mk_label(pg0, 276, 56, UI_FONT_META, CLR_UP);
     lv_label_set_text(lbl_down, "--");
     lv_label_set_text(lbl_down_unit, "MB/s");
