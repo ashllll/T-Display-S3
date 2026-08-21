@@ -357,17 +357,17 @@ static lv_obj_t *dot_status, *lbl_source;
 static lv_obj_t *lbl_main_curve_state, *lbl_curve_state;
 static lv_obj_t *lbl_curve_down, *lbl_curve_up, *lbl_curve_ping;
 
-static void fmt_rate(uint32_t bps, char *value, int value_cap, const char **unit) {
-    if (bps >= 1048576) {
-        float v = bps / 1048576.0f;
+static void fmt_rate(uint32_t bytes_per_sec, char *value, int value_cap, const char **unit) {
+    if (bytes_per_sec >= 1048576) {
+        float v = bytes_per_sec / 1048576.0f;
         snprintf(value, value_cap, v >= 100 ? "%.0f" : "%.1f", v);
         *unit = "MB/s";
-    } else if (bps >= 1024) {
-        float v = bps / 1024.0f;
+    } else if (bytes_per_sec >= 1024) {
+        float v = bytes_per_sec / 1024.0f;
         snprintf(value, value_cap, v >= 100 ? "%.0f" : "%.1f", v);
         *unit = "KB/s";
     } else {
-        snprintf(value, value_cap, "%u", (unsigned)bps);
+        snprintf(value, value_cap, "%u", (unsigned)bytes_per_sec);
         *unit = "B/s";
     }
 }

@@ -26,8 +26,8 @@ typedef struct {
     float mem_pct;
     uint32_t online_cnt;
     uint32_t conn_cnt;
-    uint32_t down_bps;      // 实时下行 B/s（由 total_down 采样差分）
-    uint32_t up_bps;        // 实时上行 B/s（由 total_up 采样差分）
+    uint32_t down_bps;      // iKuai stream.download 瞬时值，内部按 B/s 传递
+    uint32_t up_bps;        // iKuai stream.upload 瞬时值，内部按 B/s 传递
 } ikuai_sys_t;
 
 typedef struct {

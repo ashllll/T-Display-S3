@@ -9,7 +9,7 @@
 CPU/MEM 百分比现在会在数值从 `--`、个位数变化到三位数时重新锚定 `%` 单位，避免单位漂移、重叠或与数字脱节。速率单位也按当前值宽度重新对齐；本版同时保留大号原生数字和单一焦点排版，优先保证真实小屏可读性。WAN、客户端排行和无线 AC 还会按各自时间戳显示 `STALE`，避免网络异常时误读缓存。
 
 When CPU or memory values change width—from `--` to one, two, or three digits—the `%` suffix is re-anchored after each update. This prevents drift and overlap on the physical 320×170 display. Rate units use the same width-aware alignment, while the large native-number layout remains the readability baseline.
-Each extended data source now has its own freshness timestamp and shows `STALE` when it expires. Rate normalization keeps the raw API value unless counter-derived data has a plausible unit relationship, preventing a silent 1024x mismatch. Gateway latency is labeled `GW` so it is not mistaken for an Internet speed test.
+Each extended data source now has its own freshness timestamp and shows `STALE` when it expires. Realtime throughput uses iKuai's `stream.download` and `stream.upload` fields directly; cumulative `total_down` and `total_up` are not differenced into a second rate, so the monitor stays aligned with the router's own rate display. The UI formats the direct value as `B/s`, `KB/s`, or `MB/s`. Gateway latency is labeled `GW` so it is not mistaken for an Internet speed test.
 
 ## 十页设计与显示目标
 

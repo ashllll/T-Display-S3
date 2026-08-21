@@ -39,14 +39,7 @@ static ikuai_curve_t  s_curve;
 static volatile uint32_t s_last_ok_ts = 0;
 static volatile float s_latest_ping_ms = -1;   // ping 回调只存最新值
 static volatile ikuai_link_state_t s_link_state = IKUAI_LINK_WAIT;
-static uint64_t s_prev_total_down;
-static uint64_t s_prev_total_up;
-static uint64_t s_prev_down_us;
-static uint64_t s_prev_up_us;
-static bool s_prev_down_valid;
-static bool s_prev_up_valid;
 static volatile bool s_network_changed;
-static uint32_t s_api_rate_scale = 1;
 
 // ─── HTTP（复用 client，IDF 6.0.1 每次 init/cleanup 泄漏 ~5KB）───
 
@@ -167,44 +160,6 @@ static bool kv_num_range(const char *start, const char *end, const char *key, do
     return true;
 }
 
-static uint32_t rate_from_counter(uint64_t total, uint64_t now_us,
-                                  uint64_t *prev_total, uint64_t *prev_us,
-                                  bool *valid, bool *sample_valid,
-                                  uint32_t fallback) {
-    uint32_t result = fallback;
-    if (sample_valid) *sample_valid = false;
-    if (*valid && total >= *prev_total && now_us > *prev_us) {
-        uint64_t delta = total - *prev_total;
-        uint64_t elapsed_us = now_us - *prev_us;
-        uint64_t bytes_per_sec = (delta / elapsed_us) * 1000000ULL;
-        bytes_per_sec += ((delta % elapsed_us) * 1000000ULL) / elapsed_us;
-        result = bytes_per_sec > UINT32_MAX ? UINT32_MAX : (uint32_t)bytes_per_sec;
-        if (sample_valid) *sample_valid = true;
-    }
-    *prev_total = total;
-    *prev_us = now_us;
-    *valid = true;
-    return result;
-}
-
-// iKuai firmware versions have exposed stream rates as either B/s or KB/s.
-// Keep the raw field as fallback and only promote the counter delta when its
-// relationship to the raw value is plausible, avoiding a silent 1024x error.
-static uint32_t choose_rate(uint32_t direct_bps, bool direct_valid,
-                            uint32_t counter_bps, bool counter_valid,
-                            uint32_t *scale_out) {
-    if (scale_out) *scale_out = 1;
-    if (!counter_valid) return direct_valid ? direct_bps : 0;
-    if (!direct_valid || direct_bps == 0) return counter_bps;
-
-    uint64_t d = direct_bps;
-    uint64_t c = counter_bps;
-    bool same_unit = c >= d / 4 && c <= d * 4;
-    bool direct_is_kib = c >= d * 512 && c <= d * 2048;
-    if (direct_is_kib && scale_out) *scale_out = 1024;
-    return (same_unit || direct_is_kib) ? counter_bps : direct_bps;
-}
-
 static bool kv_str_range(const char *start, const char *end, const char *key,
                          char *out, int cap) {
     char pat[32];
@@ -223,10 +178,6 @@ static void parse_system(const char *resp) {
     ikuai_sys_t s = { 0 };
     char tmp[16];
     double v;
-    bool has_total_down = false;
-    bool has_total_up = false;
-    uint64_t total_down = 0;
-    uint64_t total_up = 0;
     uint32_t direct_down = 0, direct_up = 0;
     bool has_direct_down = false, has_direct_up = false;
     if (array_first_str(resp, "cpu", tmp, sizeof(tmp))) s.cpu_pct = (float)atof(tmp);
@@ -240,35 +191,18 @@ static void parse_system(const char *resp) {
     const char *st = strstr(resp, "\"stream\":{");
     if (st) {
         if (kv_num_range(st, st + 300, "connect_num", &v)) s.conn_cnt = (uint32_t)v;
-        // 保留瞬时字段原值；是否需要 KB/s 转换由累计计数的比例运行时确认。
+        // download/upload 是 iKuai 当前瞬时速率字段；实时展示直接使用它们。
+        // total_down/total_up 仅表示累计流量，不能与本次采样混算成另一套速率。
         if (kv_num_range(st, st + 300, "download", &v))
             direct_down = v > 0 ? (uint32_t)v : 0, has_direct_down = true;
         if (kv_num_range(st, st + 300, "upload", &v))
             direct_up = v > 0 ? (uint32_t)v : 0, has_direct_up = true;
-        if (kv_num_range(st, st + 300, "total_down", &v) && v >= 0)
-            total_down = (uint64_t)v, has_total_down = true;
-        if (kv_num_range(st, st + 300, "total_up", &v) && v >= 0)
-            total_up = (uint64_t)v, has_total_up = true;
     }
-    // HTTP 2xx 已经代表本次采样成功；空闲 WAN 的速率和在线数都可能为 0。
-    s.ok = true;
+    // 空闲 WAN 的速率可以为 0；只有瞬时字段缺失才判定本次解析失败。
+    s.ok = st != NULL && has_direct_down && has_direct_up;
     uint64_t now_us = (uint64_t)esp_timer_get_time();
-    bool down_counter_ok = false, up_counter_ok = false;
-    uint32_t down_counter = has_total_down
-        ? rate_from_counter(total_down, now_us, &s_prev_total_down, &s_prev_down_us,
-                            &s_prev_down_valid, &down_counter_ok, direct_down)
-        : (s_prev_down_valid = false, 0);
-    uint32_t up_counter = has_total_up
-        ? rate_from_counter(total_up, now_us, &s_prev_total_up, &s_prev_up_us,
-                            &s_prev_up_valid, &up_counter_ok, direct_up)
-        : (s_prev_up_valid = false, 0);
-    uint32_t down_scale = 1, up_scale = 1;
-    s.down_bps = choose_rate(direct_down, has_direct_down, down_counter,
-                             down_counter_ok, &down_scale);
-    s.up_bps = choose_rate(direct_up, has_direct_up, up_counter,
-                           up_counter_ok, &up_scale);
-    if (down_scale == 1024 || up_scale == 1024) s_api_rate_scale = 1024;
-    else if (down_counter_ok || up_counter_ok) s_api_rate_scale = 1;
+    s.down_bps = has_direct_down ? direct_down : 0;
+    s.up_bps = has_direct_up ? direct_up : 0;
     s.ts = (uint32_t)(now_us / 1000000);
     if (s.ok) s_last_ok_ts = s.ts;
 
@@ -283,16 +217,18 @@ static void parse_system(const char *resp) {
         if (vi) kv_str_range(vi, vi + 400, "verstring", s_extra.version, sizeof(s_extra.version));
     }
     s_sys = s;
-    s_extra.system_ts = s.ts;
-    s_extra.ok = true;
-    // 速率 + ping 统一进曲线（1s 采样，由本函数推进槽位）
-    int h = s_curve.head;
-    s_curve.down[h] = s.down_bps;
-    s_curve.up[h] = s.up_bps;
-    s_curve.ping_ms[h] = s_latest_ping_ms;
-    if (s_curve.n < IKUAI_CURVE_MAX) s_curve.n++;
-    s_curve.head = (h + 1) % IKUAI_CURVE_MAX;
-    s_curve.ts = s.ts;
+    if (s.ok) {
+        s_extra.system_ts = s.ts;
+        s_extra.ok = true;
+        // 速率 + ping 统一进曲线（1s 采样，由本函数推进槽位）
+        int h = s_curve.head;
+        s_curve.down[h] = s.down_bps;
+        s_curve.up[h] = s.up_bps;
+        s_curve.ping_ms[h] = s_latest_ping_ms;
+        if (s_curve.n < IKUAI_CURVE_MAX) s_curve.n++;
+        s_curve.head = (h + 1) % IKUAI_CURVE_MAX;
+        s_curve.ts = s.ts;
+    }
     xSemaphoreGive(s_mux);
 }
 
@@ -364,10 +300,13 @@ static void parse_clients(const char *resp) {
     for (int i = 0; i < cnt; i++) s_extra.client[i] = s_extra_client_tmp[i];
     s_extra.ok = true;
     s_extra.clients_ts = (uint32_t)(esp_timer_get_time() / 1000000);
-    for (int i = 0; i < cnt; i++) {
-        uint64_t scaled = (uint64_t)s_extra.client[i].down_bps * s_api_rate_scale;
-        s_extra.client[i].down_bps = scaled > UINT32_MAX ? UINT32_MAX : (uint32_t)scaled;
-    }
+    xSemaphoreGive(s_mux);
+}
+
+static void mark_system_sample_failed(void) {
+    if (!s_mux) return;
+    xSemaphoreTake(s_mux, portMAX_DELAY);
+    s_sys.ok = false;
     xSemaphoreGive(s_mux);
 }
 
@@ -455,14 +394,15 @@ static void poll_task(void *arg) {
                 esp_ping_delete_session(s_ping);
                 s_ping = NULL;
             }
-            s_prev_down_valid = false;
-            s_prev_up_valid = false;
+            mark_system_sample_failed();
         }
         if (!s_ping) ping_start();
         if (now >= next) {
             next = now + 1;   // 1s 实时采样
             if (api_get("/api/v4.0/monitoring/system", buf, BUF_SZ))
                 parse_system(buf);
+            else
+                mark_system_sample_failed();
         }
         if (now >= next_ext) {
             next_ext = now + 3;   // 扩展信息:3s 一轮,每轮只发一个请求

@@ -33,7 +33,7 @@ The firmware contains ten single-purpose pages. The SVG previews below show the 
 
 Extended endpoints rotate one request every three seconds to keep router load low.
 
-The monitor marks each extended data source independently as live or stale instead of presenting old WAN/client/AC values as current. Rate parsing keeps the router's raw instantaneous field as a fallback and only applies counter-derived data when the units agree, preventing a silent 1024x error. The ping label is `GW` because it measures the local gateway, not an Internet speed test.
+The monitor marks each extended data source independently as live or stale instead of presenting old WAN/client/AC values as current. Realtime throughput uses iKuai's instantaneous `stream.download` and `stream.upload` fields directly; cumulative `total_down` and `total_up` are not differenced into a second rate. The UI formats the direct value as `B/s`, `KB/s`, or `MB/s`, and the ping label is `GW` because it measures the local gateway, not an Internet speed test.
 
 BOOT (GPIO0): single press changes page, double press returns home, and long press toggles the display. The single/double decision window is 260 ms and the active page dot briefly flashes to confirm a key event. Wi-Fi reconnects with exponential backoff (up to 30 s) instead of hammering the access point. The UI returns home after 60 seconds without input.
 
